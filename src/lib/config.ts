@@ -1,38 +1,11 @@
-import Constants from 'expo-constants';
-
-type EnvExtra = {
-  supabaseUrl?: string;
-  supabaseAnonKey?: string;
-};
-
-function getExtra(): EnvExtra {
-  return (
-    Constants.expoConfig?.extra ??
-    (Constants as { manifest2?: { extra?: EnvExtra } }).manifest2?.extra ??
-    (Constants as { manifest?: { extra?: EnvExtra } }).manifest?.extra ??
-    {}
-  ) as EnvExtra;
-}
-
-// Static access required — Metro inlines EXPO_PUBLIC_* from .env at bundle time
-const envUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
-const envKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
-
-const extra = getExtra();
-
-const supabaseUrl = envUrl || extra.supabaseUrl || '';
-const supabaseAnonKey = envKey || extra.supabaseAnonKey || '';
+const supabaseUrl = 'https://cwvvjlnufkvcminnoxfo.supabase.co';
+const supabaseAnonKey =
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN3dnZqbG51Zmt2Y21pbm5veGZvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYzNDUzNDUsImV4cCI6MjEwMTkyMTM0NX0.ld5F5UhjAQs7HSe_MZ7GzcOYoju6VtiGNC_PW5ZF4fU';
 
 export const config = {
   supabase: {
     url: supabaseUrl,
     anonKey: supabaseAnonKey,
   },
-  isSupabaseConfigured: Boolean(supabaseUrl && supabaseAnonKey),
+  isSupabaseConfigured: true,
 } as const;
-
-if (__DEV__ && !config.isSupabaseConfigured) {
-  console.warn(
-    '[config] Supabase credentials missing. Check .env and restart with: npx expo start -c'
-  );
-}

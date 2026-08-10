@@ -1,14 +1,17 @@
-import { config } from '@/src/lib/config';
 import type { Database } from '@/src/types/database';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient } from '@supabase/supabase-js';
 import 'react-native-url-polyfill/auto';
 
+const supabaseUrl = 'https://cwvvjlnufkvcminnoxfo.supabase.co';
+const supabaseAnonKey =
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN3dnZqbG51Zmt2Y21pbm5veGZvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYzNDUzNDUsImV4cCI6MjEwMTkyMTM0NX0.ld5F5UhjAQs7HSe_MZ7GzcOYoju6VtiGNC_PW5ZF4fU';
+
 const supabaseFetch: typeof fetch = async (input, init) => {
   const headers = new Headers(init?.headers);
 
   if (!headers.has('apikey')) {
-    headers.set('apikey', config.supabase.anonKey);
+    headers.set('apikey', supabaseAnonKey);
   }
 
   return globalThis.fetch(input, {
@@ -37,15 +40,6 @@ const authStorage = {
     return AsyncStorage.removeItem(key);
   },
 };
-
-const supabaseUrl = config.supabase.url;
-const supabaseAnonKey = config.supabase.anonKey;
-
-if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error(
-    'Supabase is not configured. Set EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY in .env, then restart with: npx expo start -c'
-  );
-}
 
 export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, {
   auth: {

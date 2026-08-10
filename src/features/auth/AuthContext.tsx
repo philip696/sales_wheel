@@ -1,16 +1,22 @@
-import { Session, User } from '@supabase/supabase-js';
-import {
-  createContext,
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-  type ReactNode,
-} from 'react';
+import { config } from '@/src/lib/config';
 import { supabase } from '@/src/lib/supabase';
 import { logAuditEvent } from '@/src/services/auditService';
 import { registerDevice } from '@/src/services/deviceService';
 import type { Sales } from '@/src/types';
+import { Session, User } from '@supabase/supabase-js';
+import {
+    createContext,
+    useCallback,
+    useEffect,
+    useMemo,
+    useState,
+    type ReactNode,
+} from 'react';
+
+type PasswordAuthResponse = {
+  access_token: string;
+  refresh_token: string;
+};
 
 interface AuthContextValue {
   session: Session | null;
@@ -39,6 +45,29 @@ async function fetchSalesProfile(userId: string): Promise<Sales | null> {
   }
 
   return data;
+}
+
+async function signInWithPasswordFallback(email: string, password: string) {
+  const response = await fetch(`${config.supabase.url}/auth/v1/token?grant_type=password`, {
+    method: 'POST',
+    headers: {
+      apikey: config.supabase.anonKey,
+      Authorization: `Bearer ${config.supabase.anonKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      email,
+      password,
+    }),
+  });
+
+  const payload = (await response.json()) as PasswordAuthResponse & { message?: string };
+
+  if (!response.ok) {
+    throw new Error(payload.message ?? 'Login failed');
+  }
+
+  return payload;
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -93,13 +122,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [session?.user, refreshProfile]);
 
   const signIn = useCallback(async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
-      password,
+    const trimmedEmail = email.trim();
+    const authResponse = await signInWithPasswordFallback(trimmedEmail, password);
+
+    const { data, error } = await supabase.auth.setSession({
+      access_token: authResponse.access_token,
+      refresh_token: authResponse.refresh_token,
     });
 
-    if (error) {
-      throw new Error(error.message);
+    if (error || !data.session) {
+      throw new Error(error?.message ?? 'Failed to create session');
     }
 
     await logAuditEvent({ action: 'LOGIN' });
