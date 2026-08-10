@@ -1,8 +1,21 @@
-import 'react-native-url-polyfill/auto';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { createClient } from '@supabase/supabase-js';
 import { config } from '@/src/lib/config';
 import type { Database } from '@/src/types/database';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { createClient } from '@supabase/supabase-js';
+import 'react-native-url-polyfill/auto';
+
+const supabaseFetch: typeof fetch = async (input, init) => {
+  const headers = new Headers(init?.headers);
+
+  if (!headers.has('apikey')) {
+    headers.set('apikey', config.supabase.anonKey);
+  }
+
+  return globalThis.fetch(input, {
+    ...init,
+    headers,
+  });
+};
 
 const authStorage = {
   getItem: (key: string) => {
@@ -42,6 +55,7 @@ export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, {
     detectSessionInUrl: false,
   },
   global: {
+    fetch: supabaseFetch,
     headers: {
       apikey: supabaseAnonKey,
     },

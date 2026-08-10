@@ -1,6 +1,6 @@
-import appJson from './app.json';
-import { ExpoConfig } from 'expo/config';
 import { load } from '@expo/env';
+import { ExpoConfig } from 'expo/config';
+import appJson from './app.json';
 
 // Load variables from .env in the project root (not .env.example)
 load(process.cwd());
