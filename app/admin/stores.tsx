@@ -1,795 +1,647 @@
-import React, {
-  useCallback,
-  useEffect,
-  useState,
-} from 'react';
+import { FormInput } from '@/src/components/FormInput';
+import { PrimaryButton } from '@/src/components/PrimaryButton';
+import { ScreenContainer } from '@/src/components/ScreenContainer';
+import { geocodeAddress } from '@/src/services/geocodingService';
+import {
+  createStore,
+  deleteStore,
+  listAllStores,
+  setStoreStatus,
+  updateStore,
+} from '@/src/services/storeService';
+import type { EntityStatus, Store, StoreInput } from '@/src/types';
+import {
+  isValidLatitude,
+  isValidLongitude,
+  isValidRadiusMeters,
+  isValidStoreCode,
+  isValidStoreName,
+} from '@/src/utils/validation';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
-  Image,
-  ScrollView,
+  Alert,
+  FlatList,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  RefreshControl,
   StyleSheet,
+  Switch,
   Text,
   View,
 } from 'react-native';
 
-import { ScreenContainer } from '@/src/components/ScreenContainer';
-import { supabase } from '@/src/lib/supabase';
+type StatusFilter = EntityStatus | 'all';
 
-const ATTENDANCE_BUCKET = 'attendance-photos';
-
-type AttendanceRecord = {
-  id: string;
-  sales_id: string;
-  store_id: string;
-  latitude: number | null;
-  longitude: number | null;
-  gps_accuracy: number | null;
-  distance_meters: number | null;
-  photo_path: string | null;
-  client_captured_at: string | null;
-  created_at: string;
-  status: string;
-  rejection_reason: string | null;
-
-  sales: {
-    id: string;
-    name: string;
-    email: string;
-    sales_code: string;
-  } | null;
-
-  store: {
-    id: string;
-    name: string;
-  } | null;
-
-  photo_url: string | null;
+const EMPTY_FORM: StoreInput = {
+  store_code: '',
+  name: '',
+  address: '',
+  latitude: 0,
+  longitude: 0,
+  radius_meters: 50,
+  status: 'active',
 };
 
-export default function AdminAttendanceScreen() {
-  const [records, setRecords] = useState<
-    AttendanceRecord[]
-  >([]);
+const STATUS_FILTERS: { label: string; value: StatusFilter }[] = [
+  { label: 'All', value: 'all' },
+  { label: 'Active', value: 'active' },
+  { label: 'Inactive', value: 'inactive' },
+];
+
+export default function AdminStoresScreen() {
+  const [stores, setStores] = useState<Store[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(
-    null
-  );
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
 
-  const loadAttendance = useCallback(async () => {
+  const [modalVisible, setModalVisible] = useState(false);
+  const [editingStore, setEditingStore] = useState<Store | null>(null);
+  const [form, setForm] = useState<StoreInput>(EMPTY_FORM);
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [geocoding, setGeocoding] = useState(false);
+  const [geocodeMatch, setGeocodeMatch] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setError(null);
     try {
-      setLoading(true);
-      setError(null);
-
-      const {
-        data: { user },
-        error: authError,
-      } = await supabase.auth.getUser();
-
-      if (authError) {
-        throw new Error(
-          `Authentication error: ${authError.message}`
-        );
-      }
-
-      if (!user) {
-        throw new Error(
-          'You are not authenticated.'
-        );
-      }
-
-      console.log('ADMIN ATTENDANCE USER:', {
-        id: user.id,
-        email: user.email,
+      const result = await listAllStores({
+        status: statusFilter,
+        pageSize: 100,
       });
-
-      const { data, error: attendanceError } =
-        await supabase
-          .from('attendance')
-          .select(`
-            id,
-            sales_id,
-            store_id,
-            latitude,
-            longitude,
-            gps_accuracy,
-            distance_meters,
-            photo_path,
-            client_captured_at,
-            created_at,
-            status,
-            rejection_reason,
-
-            sales:sales_id (
-              id,
-              name,
-              email,
-              sales_code
-            ),
-
-            store:store_id (
-              id,
-              name
-            )
-          `)
-          .order('created_at', {
-            ascending: false,
-          });
-
-      if (attendanceError) {
-        console.error(
-          'ADMIN ATTENDANCE DATABASE ERROR:',
-          {
-            code: attendanceError.code,
-            message: attendanceError.message,
-            details: attendanceError.details,
-            hint: attendanceError.hint,
-          }
-        );
-
-        throw new Error(
-          `Could not read attendance: ${attendanceError.message}`
-        );
-      }
-
-      console.log(
-        'ADMIN ATTENDANCE RECORDS:',
-        data
-      );
-
-      const recordsWithPhotos =
-        await Promise.all(
-          (data ?? []).map(
-            async (record: any) => {
-              let photoUrl: string | null = null;
-
-              if (record.photo_path) {
-                const {
-                  data: signedUrl,
-                  error: photoError,
-                } = await supabase.storage
-                  .from(ATTENDANCE_BUCKET)
-                  .createSignedUrl(
-                    record.photo_path,
-                    60 * 60
-                  );
-
-                if (photoError) {
-                  console.error(
-                    'ATTENDANCE PHOTO ERROR:',
-                    {
-                      attendanceId: record.id,
-                      photoPath:
-                        record.photo_path,
-                      message:
-                        photoError.message,
-                    }
-                  );
-                } else {
-                  photoUrl =
-                    signedUrl?.signedUrl ?? null;
-                }
-              }
-
-              return {
-                ...record,
-                photo_url: photoUrl,
-              };
-            }
-          )
-        );
-
-      setRecords(recordsWithPhotos);
+      setStores(result.data);
     } catch (err) {
-      console.error(
-        'ADMIN ATTENDANCE PAGE ERROR:',
-        err
-      );
-
-      setError(
-        err instanceof Error
-          ? err.message
-          : 'Failed to load attendance'
-      );
-    } finally {
-      setLoading(false);
+      setError(err instanceof Error ? err.message : 'Failed to load stores.');
     }
-  }, []);
+  }, [statusFilter]);
 
   useEffect(() => {
-    loadAttendance();
-  }, [loadAttendance]);
+    setLoading(true);
+    load().finally(() => setLoading(false));
+  }, [load]);
 
-  const total = records.length;
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await load();
+    setRefreshing(false);
+  }, [load]);
 
-  const approved = records.filter(
-    (record) =>
-      record.status?.toLowerCase() ===
-      'approved'
-  ).length;
+  const openCreateModal = () => {
+    setEditingStore(null);
+    setForm(EMPTY_FORM);
+    setFormError(null);
+    setGeocodeMatch(null);
+    setModalVisible(true);
+  };
 
-  const rejected = records.filter(
-    (record) =>
-      record.status?.toLowerCase() ===
-      'rejected'
-  ).length;
+  const openEditModal = (store: Store) => {
+    setEditingStore(store);
+    setForm({
+      store_code: store.store_code,
+      name: store.name,
+      address: store.address ?? '',
+      latitude: store.latitude,
+      longitude: store.longitude,
+      radius_meters: store.radius_meters,
+      status: store.status,
+    });
+    setFormError(null);
+    setGeocodeMatch(null);
+    setModalVisible(true);
+  };
+
+  const closeModal = () => {
+    if (saving) return;
+    setModalVisible(false);
+  };
+
+  const handleGeocodeAddress = async () => {
+    if (!form.address || form.address.trim().length === 0) {
+      setFormError('Enter an address first, then tap "Find Coordinates".');
+      return;
+    }
+
+    setGeocoding(true);
+    setFormError(null);
+    setGeocodeMatch(null);
+    try {
+      const result = await geocodeAddress(form.address);
+      if (!result) {
+        setFormError('No matching location found for that address.');
+        return;
+      }
+      setForm((f) => ({
+        ...f,
+        latitude: result.latitude,
+        longitude: result.longitude,
+      }));
+      setGeocodeMatch(result.displayName);
+    } catch (err) {
+      setFormError(
+        err instanceof Error ? err.message : 'Could not look up that address.'
+      );
+    } finally {
+      setGeocoding(false);
+    }
+  };
+
+  const validateForm = (): string | null => {
+    if (!isValidStoreCode(form.store_code)) {
+      return 'Store code must be 2-32 characters.';
+    }
+    if (!isValidStoreName(form.name)) {
+      return 'Store name must be 2-120 characters.';
+    }
+    if (!isValidLatitude(form.latitude)) {
+      return 'Latitude must be a number between -90 and 90.';
+    }
+    if (!isValidLongitude(form.longitude)) {
+      return 'Longitude must be a number between -180 and 180.';
+    }
+    if (!isValidRadiusMeters(form.radius_meters)) {
+      return 'Radius must be a number between 1 and 5000 meters.';
+    }
+    return null;
+  };
+
+  const handleSave = async () => {
+    const validationError = validateForm();
+    if (validationError) {
+      setFormError(validationError);
+      return;
+    }
+
+    setSaving(true);
+    setFormError(null);
+    try {
+      if (editingStore) {
+        await updateStore(editingStore.id, form);
+      } else {
+        await createStore(form);
+      }
+      setModalVisible(false);
+      await load();
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : 'Failed to save store.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleToggleStatus = async (store: Store) => {
+    const nextStatus: EntityStatus =
+      store.status === 'active' ? 'inactive' : 'active';
+    try {
+      await setStoreStatus(store.id, nextStatus);
+      await load();
+    } catch (err) {
+      Alert.alert(
+        'Update Failed',
+        err instanceof Error ? err.message : 'Could not update store status.'
+      );
+    }
+  };
+
+  const handleDelete = (store: Store) => {
+    Alert.alert(
+      'Delete Store',
+      `Delete "${store.name}"? This cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteStore(store.id);
+              await load();
+            } catch (err) {
+              const message =
+                err instanceof Error ? err.message : 'Could not delete store.';
+              Alert.alert('Delete Failed', message, [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                  text: 'Deactivate Instead',
+                  onPress: () => handleToggleStatus(store),
+                },
+              ]);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const listHeader = useMemo(
+    () => (
+      <View style={styles.filterRow}>
+        {STATUS_FILTERS.map((filter) => (
+          <Pressable
+            key={filter.value}
+            onPress={() => setStatusFilter(filter.value)}
+            style={[
+              styles.filterChip,
+              statusFilter === filter.value && styles.filterChipActive,
+            ]}
+          >
+            <Text
+              style={[
+                styles.filterChipText,
+                statusFilter === filter.value && styles.filterChipTextActive,
+              ]}
+            >
+              {filter.label}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+    ),
+    [statusFilter]
+  );
 
   return (
-    <ScreenContainer
-      title="Attendance Monitoring"
-      subtitle="Monitor sales attendance and verification"
-    >
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.container}
+    <ScreenContainer title="Store Management" style={styles.screen}>
+      <PrimaryButton
+        title="+ Add Store"
+        onPress={openCreateModal}
+        style={styles.addButton}
+      />
+
+      {error ? (
+        <View style={styles.errorBox}>
+          <Text style={styles.errorText}>{error}</Text>
+        </View>
+      ) : null}
+
+      {loading ? (
+        <ActivityIndicator style={styles.loading} size="large" color="#2563eb" />
+      ) : (
+        <FlatList
+          data={stores}
+          keyExtractor={(item) => item.id}
+          ListHeaderComponent={listHeader}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          }
+          ListEmptyComponent={
+            <Text style={styles.emptyText}>No stores found.</Text>
+          }
+          renderItem={({ item }) => (
+            <View style={styles.card}>
+              <View style={styles.cardHeader}>
+                <Text style={styles.cardTitle}>{item.name}</Text>
+                <View
+                  style={[
+                    styles.statusBadge,
+                    item.status === 'active'
+                      ? styles.statusActive
+                      : styles.statusInactive,
+                  ]}
+                >
+                  <Text style={styles.statusBadgeText}>{item.status}</Text>
+                </View>
+              </View>
+              <Text style={styles.cardSubtitle}>{item.store_code}</Text>
+              {item.address ? (
+                <Text style={styles.cardMeta}>{item.address}</Text>
+              ) : null}
+              <Text style={styles.cardMeta}>
+                {item.latitude.toFixed(5)}, {item.longitude.toFixed(5)} · radius{' '}
+                {item.radius_meters}m
+              </Text>
+
+              <View style={styles.cardActions}>
+                <Pressable
+                  style={[styles.actionButton, styles.editAction]}
+                  onPress={() => openEditModal(item)}
+                >
+                  <Text style={styles.actionButtonText}>Edit</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.actionButton, styles.toggleAction]}
+                  onPress={() => handleToggleStatus(item)}
+                >
+                  <Text style={styles.actionButtonText}>
+                    {item.status === 'active' ? 'Deactivate' : 'Activate'}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.actionButton, styles.deleteAction]}
+                  onPress={() => handleDelete(item)}
+                >
+                  <Text style={styles.actionButtonText}>Delete</Text>
+                </Pressable>
+              </View>
+            </View>
+          )}
+        />
+      )}
+
+      <Modal
+        visible={modalVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={closeModal}
       >
-        {/* Summary */}
-        <View style={styles.summaryRow}>
-          <View style={styles.summaryCard}>
-            <Text style={styles.summaryNumber}>
-              {loading ? '—' : total}
+        <KeyboardAvoidingView
+          style={styles.modalBackdrop}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>
+              {editingStore ? 'Edit Store' : 'Add Store'}
             </Text>
 
-            <Text style={styles.summaryLabel}>
-              Total
-            </Text>
-          </View>
+            {formError ? (
+              <View style={styles.errorBox}>
+                <Text style={styles.errorText}>{formError}</Text>
+              </View>
+            ) : null}
 
-          <View style={styles.summaryCard}>
-            <Text
+            <FormInput
+              placeholder="Store Code (e.g. STR-001)"
+              autoCapitalize="characters"
+              value={form.store_code}
+              onChangeText={(text) => setForm((f) => ({ ...f, store_code: text }))}
+            />
+            <FormInput
+              placeholder="Store Name"
+              value={form.name}
+              onChangeText={(text) => setForm((f) => ({ ...f, name: text }))}
+            />
+            <FormInput
+              placeholder="Address (optional)"
+              value={form.address ?? ''}
+              onChangeText={(text) => {
+                setForm((f) => ({ ...f, address: text }));
+                setGeocodeMatch(null);
+              }}
+            />
+            <Pressable
               style={[
-                styles.summaryNumber,
-                styles.approved,
+                styles.geocodeButton,
+                geocoding && styles.geocodeButtonDisabled,
               ]}
+              onPress={handleGeocodeAddress}
+              disabled={geocoding}
             >
-              {loading ? '—' : approved}
-            </Text>
-
-            <Text style={styles.summaryLabel}>
-              Approved
-            </Text>
-          </View>
-
-          <View style={styles.summaryCard}>
-            <Text
-              style={[
-                styles.summaryNumber,
-                styles.rejected,
-              ]}
-            >
-              {loading ? '—' : rejected}
-            </Text>
-
-            <Text style={styles.summaryLabel}>
-              Rejected
-            </Text>
-          </View>
-        </View>
-
-        {/* Attendance Records */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>
-            Attendance Records
-          </Text>
-
-          <View style={styles.filterRow}>
-            <View style={styles.filter}>
-              <Text style={styles.filterText}>
-                All Status
+              {geocoding ? (
+                <ActivityIndicator size="small" color="#2563eb" />
+              ) : (
+                <Text style={styles.geocodeButtonText}>
+                  📍 Find Coordinates from Address
+                </Text>
+              )}
+            </Pressable>
+            {geocodeMatch ? (
+              <Text style={styles.geocodeMatchText} numberOfLines={2}>
+                Matched: {geocodeMatch}
               </Text>
-            </View>
+            ) : null}
 
-            <View style={styles.filter}>
-              <Text style={styles.filterText}>
-                Today
-              </Text>
-            </View>
-          </View>
-        </View>
-
-        {loading ? (
-          <View style={styles.emptyCard}>
-            <ActivityIndicator size="large" />
-
-            <Text style={styles.emptyTitle}>
-              Loading Attendance
-            </Text>
-
-            <Text style={styles.emptyText}>
-              Reading attendance records...
-            </Text>
-          </View>
-        ) : error ? (
-          <View style={styles.emptyCard}>
-            <Text style={styles.emptyIcon}>
-              ⚠️
-            </Text>
-
-            <Text style={styles.emptyTitle}>
-              Unable to load attendance
-            </Text>
-
-            <Text style={styles.emptyText}>
-              {error}
-            </Text>
-          </View>
-        ) : records.length === 0 ? (
-          <View style={styles.emptyCard}>
-            <Text style={styles.emptyIcon}>
-              📋
-            </Text>
-
-            <Text style={styles.emptyTitle}>
-              Attendance Records
-            </Text>
-
-            <Text style={styles.emptyText}>
-              No attendance records have been
-              submitted yet.
-            </Text>
-          </View>
-        ) : (
-          <View style={styles.records}>
-            {records.map((record) => (
-              <AttendanceCard
-                key={record.id}
-                record={record}
+            <View style={styles.row}>
+              <FormInput
+                placeholder="Latitude"
+                keyboardType="numbers-and-punctuation"
+                value={String(form.latitude)}
+                onChangeText={(text) =>
+                  setForm((f) => ({ ...f, latitude: Number(text) || 0 }))
+                }
+                style={styles.halfInput}
               />
-            ))}
+              <FormInput
+                placeholder="Longitude"
+                keyboardType="numbers-and-punctuation"
+                value={String(form.longitude)}
+                onChangeText={(text) =>
+                  setForm((f) => ({ ...f, longitude: Number(text) || 0 }))
+                }
+                style={styles.halfInput}
+              />
+            </View>
+            <FormInput
+              placeholder="Radius (meters)"
+              keyboardType="number-pad"
+              value={String(form.radius_meters)}
+              onChangeText={(text) =>
+                setForm((f) => ({ ...f, radius_meters: Number(text) || 0 }))
+              }
+            />
+
+            <View style={styles.switchRow}>
+              <Text style={styles.switchLabel}>Active</Text>
+              <Switch
+                value={form.status === 'active'}
+                onValueChange={(value) =>
+                  setForm((f) => ({
+                    ...f,
+                    status: value ? 'active' : 'inactive',
+                  }))
+                }
+              />
+            </View>
+
+            <PrimaryButton
+              title={editingStore ? 'Save Changes' : 'Create Store'}
+              loading={saving}
+              onPress={handleSave}
+              style={styles.saveButton}
+            />
+            <PrimaryButton
+              title="Cancel"
+              variant="secondary"
+              onPress={closeModal}
+              disabled={saving}
+            />
           </View>
-        )}
-
-        {/* Information */}
-        <View style={styles.infoCard}>
-          <Text style={styles.infoTitle}>
-            Verification Details
-          </Text>
-
-          <Text style={styles.infoItem}>
-            📍 GPS location verification
-          </Text>
-
-          <Text style={styles.infoItem}>
-            📷 Attendance photo
-          </Text>
-
-          <Text style={styles.infoItem}>
-            ✅ Approval / rejection status
-          </Text>
-
-          <Text style={styles.infoItem}>
-            📝 Rejection reason
-          </Text>
-        </View>
-      </ScrollView>
+        </KeyboardAvoidingView>
+      </Modal>
     </ScreenContainer>
   );
 }
 
-function AttendanceCard({
-  record,
-}: {
-  record: AttendanceRecord;
-}) {
-  const status =
-    record.status?.toUpperCase() ??
-    'UNKNOWN';
-
-  const isApproved =
-    status === 'APPROVED';
-
-  const capturedAt =
-    record.client_captured_at
-      ? new Date(
-          record.client_captured_at
-        ).toLocaleString()
-      : 'Unknown';
-
-  const submittedAt = record.created_at
-    ? new Date(
-        record.created_at
-      ).toLocaleString()
-    : 'Unknown';
-
-  return (
-    <View style={styles.recordCard}>
-      <View style={styles.recordHeader}>
-        <View style={styles.person}>
-          <Text style={styles.personName}>
-            {record.sales?.name ??
-              'Unknown salesperson'}
-          </Text>
-
-          <Text style={styles.personEmail}>
-            {record.sales?.email ?? '—'}
-          </Text>
-
-          {record.sales?.sales_code ? (
-            <Text style={styles.salesCode}>
-              Sales code:{' '}
-              {record.sales.sales_code}
-            </Text>
-          ) : null}
-        </View>
-
-        <View
-          style={[
-            styles.statusBadge,
-            isApproved
-              ? styles.approvedBadge
-              : styles.rejectedBadge,
-          ]}
-        >
-          <Text
-            style={[
-              styles.statusText,
-              isApproved
-                ? styles.approvedText
-                : styles.rejectedText,
-            ]}
-          >
-            {status}
-          </Text>
-        </View>
-      </View>
-
-      <View style={styles.recordSeparator} />
-
-      <View style={styles.recordBody}>
-        <View style={styles.photoContainer}>
-          {record.photo_url ? (
-            <Image
-              source={{
-                uri: record.photo_url,
-              }}
-              style={styles.photo}
-              resizeMode="cover"
-            />
-          ) : (
-            <View style={styles.noPhoto}>
-              <Text style={styles.noPhotoText}>
-                No photo
-              </Text>
-            </View>
-          )}
-        </View>
-
-        <View style={styles.details}>
-          <Detail
-            label="Store"
-            value={
-              record.store?.name ??
-              'Unknown store'
-            }
-          />
-
-          <Detail
-            label="Captured"
-            value={capturedAt}
-          />
-
-          <Detail
-            label="Submitted"
-            value={submittedAt}
-          />
-
-          <Detail
-            label="Distance"
-            value={
-              record.distance_meters !==
-              null
-                ? `${record.distance_meters.toFixed(
-                    1
-                  )} m`
-                : '—'
-            }
-          />
-
-          <Detail
-            label="GPS accuracy"
-            value={
-              record.gps_accuracy !== null
-                ? `${record.gps_accuracy.toFixed(
-                    1
-                  )} m`
-                : '—'
-            }
-          />
-
-          <Detail
-            label="Latitude"
-            value={
-              record.latitude !== null
-                ? record.latitude.toFixed(6)
-                : '—'
-            }
-          />
-
-          <Detail
-            label="Longitude"
-            value={
-              record.longitude !== null
-                ? record.longitude.toFixed(6)
-                : '—'
-            }
-          />
-
-          {record.rejection_reason ? (
-            <Detail
-              label="Rejection reason"
-              value={
-                record.rejection_reason
-              }
-            />
-          ) : null}
-        </View>
-      </View>
-    </View>
-  );
-}
-
-function Detail({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
-  return (
-    <View style={styles.detail}>
-      <Text style={styles.detailLabel}>
-        {label}
-      </Text>
-
-      <Text style={styles.detailValue}>
-        {value}
-      </Text>
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
-  container: {
-    paddingBottom: 24,
+  screen: {
+    paddingBottom: 0,
   },
-
-  summaryRow: {
-    flexDirection: 'row',
-    gap: 10,
-    marginBottom: 20,
-  },
-
-  summaryCard: {
-    flex: 1,
-    backgroundColor: '#f8fafc',
-    borderRadius: 14,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-  },
-
-  summaryNumber: {
-    fontSize: 26,
-    fontWeight: '800',
-    color: '#111827',
-    marginBottom: 4,
-  },
-
-  summaryLabel: {
-    fontSize: 12,
-    color: '#64748b',
-    fontWeight: '600',
-  },
-
-  approved: {
-    color: '#16a34a',
-  },
-
-  rejected: {
-    color: '#dc2626',
-  },
-
-  section: {
-    marginBottom: 16,
-  },
-
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#111827',
+  addButton: {
     marginBottom: 12,
   },
-
+  loading: {
+    marginTop: 40,
+  },
+  emptyText: {
+    textAlign: 'center',
+    color: '#64748b',
+    marginTop: 24,
+  },
+  errorBox: {
+    backgroundColor: '#fee2e2',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 12,
+  },
+  errorText: {
+    color: '#991b1b',
+    fontSize: 13,
+  },
   filterRow: {
     flexDirection: 'row',
-    gap: 10,
-  },
-
-  filter: {
-    backgroundColor: '#ffffff',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 10,
-    paddingHorizontal: 16,
-    paddingVertical: 11,
-  },
-
-  filterText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#475569',
-  },
-
-  emptyCard: {
-    backgroundColor: '#f8fafc',
-    borderRadius: 16,
-    padding: 28,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    marginBottom: 16,
-  },
-
-  emptyIcon: {
-    fontSize: 42,
+    gap: 8,
     marginBottom: 12,
   },
-
-  emptyTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#111827',
-    marginBottom: 8,
-  },
-
-  emptyText: {
-    fontSize: 13,
-    color: '#64748b',
-    lineHeight: 20,
-    textAlign: 'center',
-  },
-
-  infoCard: {
-    backgroundColor: '#ffffff',
-    borderRadius: 14,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    marginTop: 16,
-  },
-
-  infoTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#111827',
-    marginBottom: 14,
-  },
-
-  infoItem: {
-    fontSize: 14,
-    color: '#475569',
-    marginBottom: 10,
-  },
-
-  records: {
-    gap: 16,
-  },
-
-  recordCard: {
-    backgroundColor: '#ffffff',
-    borderRadius: 16,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-  },
-
-  recordHeader: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    gap: 12,
-  },
-
-  person: {
-    flex: 1,
-  },
-
-  personName: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: '#111827',
-  },
-
-  personEmail: {
-    marginTop: 3,
-    fontSize: 13,
-    color: '#64748b',
-  },
-
-  salesCode: {
-    marginTop: 3,
-    fontSize: 12,
-    color: '#94a3b8',
-  },
-
-  statusBadge: {
-    borderRadius: 999,
-    paddingHorizontal: 10,
+  filterChip: {
     paddingVertical: 6,
-  },
-
-  approvedBadge: {
-    backgroundColor: '#dcfce7',
-  },
-
-  rejectedBadge: {
-    backgroundColor: '#fee2e2',
-  },
-
-  statusText: {
-    fontSize: 11,
-    fontWeight: '800',
-  },
-
-  approvedText: {
-    color: '#166534',
-  },
-
-  rejectedText: {
-    color: '#991b1b',
-  },
-
-  recordSeparator: {
-    height: 1,
-    backgroundColor: '#e2e8f0',
-    marginVertical: 16,
-  },
-
-  recordBody: {
-    flexDirection: 'row',
-    gap: 18,
-  },
-
-  photoContainer: {
-    width: 280,
-    height: 210,
-    borderRadius: 12,
-    overflow: 'hidden',
+    paddingHorizontal: 14,
+    borderRadius: 16,
     backgroundColor: '#f1f5f9',
   },
-
-  photo: {
-    width: '100%',
-    height: '100%',
+  filterChipActive: {
+    backgroundColor: '#2563eb',
   },
-
-  noPhoto: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  noPhotoText: {
-    color: '#64748b',
+  filterChipText: {
     fontSize: 13,
-  },
-
-  details: {
-    flex: 1,
-    gap: 10,
-  },
-
-  detail: {
-    gap: 2,
-  },
-
-  detailLabel: {
-    fontSize: 11,
-    color: '#94a3b8',
+    color: '#475569',
     fontWeight: '600',
   },
-
-  detailValue: {
+  filterChipTextActive: {
+    color: '#fff',
+  },
+  card: {
+    backgroundColor: '#f8fafc',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 12,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  cardTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#111',
+    flexShrink: 1,
+  },
+  cardSubtitle: {
     fontSize: 13,
+    color: '#2563eb',
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  cardMeta: {
+    fontSize: 13,
+    color: '#64748b',
+    marginTop: 2,
+  },
+  statusBadge: {
+    borderRadius: 12,
+    paddingVertical: 3,
+    paddingHorizontal: 10,
+  },
+  statusActive: {
+    backgroundColor: '#dcfce7',
+  },
+  statusInactive: {
+    backgroundColor: '#e2e8f0',
+  },
+  statusBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
     color: '#334155',
+    textTransform: 'uppercase',
+  },
+  cardActions: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 12,
+  },
+  actionButton: {
+    flex: 1,
+    paddingVertical: 8,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  editAction: {
+    backgroundColor: '#2563eb',
+  },
+  toggleAction: {
+    backgroundColor: '#64748b',
+  },
+  deleteAction: {
+    backgroundColor: '#dc2626',
+  },
+  actionButtonText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalCard: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 20,
+    maxHeight: '90%',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#111',
+    marginBottom: 12,
+  },
+  geocodeButton: {
+    borderWidth: 1,
+    borderColor: '#2563eb',
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+    minHeight: 40,
+  },
+  geocodeButtonDisabled: {
+    opacity: 0.6,
+  },
+  geocodeButtonText: {
+    color: '#2563eb',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  geocodeMatchText: {
+    color: '#16a34a',
+    fontSize: 12,
+    marginBottom: 12,
+  },
+  row: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  halfInput: {
+    flex: 1,
+  },
+  switchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+    marginTop: 4,
+  },
+  switchLabel: {
+    fontSize: 15,
+    color: '#111',
+    fontWeight: '600',
+  },
+  saveButton: {
+    marginBottom: 10,
   },
 });
