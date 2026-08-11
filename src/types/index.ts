@@ -116,6 +116,20 @@ export interface StoreSearchParams {
   pageSize?: number;
 }
 
+export interface AdminStoreSearchParams extends StoreSearchParams {
+  status?: EntityStatus | 'all';
+}
+
+export interface StoreInput {
+  store_code: string;
+  name: string;
+  address?: string | null;
+  latitude: number;
+  longitude: number;
+  radius_meters: number;
+  status: EntityStatus;
+}
+
 export interface PaginatedResult<T> {
   data: T[];
   total: number;
