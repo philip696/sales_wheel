@@ -17,7 +17,9 @@ export default function RootLayout() {
   });
 
   useEffect(() => {
-    if (error) throw error;
+    if (error) {
+      throw error;
+    }
   }, [error]);
 
   useEffect(() => {
@@ -33,7 +35,12 @@ export default function RootLayout() {
   return (
     <AuthProvider>
       <AttendanceFlowProvider>
-        <Stack screenOptions={{ headerShown: false }}>
+        <Stack
+          screenOptions={{
+            headerShown: false,
+            animation: 'slide_from_right',
+          }}
+        >
           <Stack.Screen name="index" />
           <Stack.Screen name="auth/login" />
           <Stack.Screen name="auth/signup" />

@@ -1,14 +1,20 @@
-import { Redirect } from 'expo-router';
-import { ActivityIndicator, View, StyleSheet } from 'react-native';
 import { useAuth } from '@/src/features/auth/useAuth';
+import { Ionicons } from '@expo/vector-icons';
+import { Redirect } from 'expo-router';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
 export default function IndexScreen() {
   const { session, isLoading, isAdmin } = useAuth();
 
   if (isLoading) {
     return (
-      <View style={styles.loading}>
-        <ActivityIndicator size="large" color="#2563eb" />
+      <View style={styles.loadingContainer}>
+        <View style={styles.brandWrapper}>
+          <View style={styles.iconBadge}>
+            <Ionicons name="shield-checkmark" size={38} color="#2563eb" />
+          </View>
+          <ActivityIndicator size="large" color="#2563eb" style={styles.spinner} />
+        </View>
       </View>
     );
   }
@@ -25,10 +31,28 @@ export default function IndexScreen() {
 }
 
 const styles = StyleSheet.create({
-  loading: {
+  loadingContainer: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#fff',
+    backgroundColor: '#f8fafc',
+  },
+  brandWrapper: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  iconBadge: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#eff6ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: '#dbeafe',
+  },
+  spinner: {
+    transform: [{ scale: 1.1 }],
   },
 });

@@ -79,12 +79,12 @@ export default function SignUpScreen() {
       });
 
       Alert.alert(
-        'Account Created 🎉',
-        'Your account has been created successfully. You can now sign in.',
+        'Account Created',
+        'Your account has been created successfully!',
         [
           {
             text: 'Continue',
-            onPress: () => router.replace('/auth/login'),
+            onPress: () => router.replace('/(sales)'),
           },
         ]
       );
