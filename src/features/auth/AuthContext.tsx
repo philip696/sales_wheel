@@ -4,18 +4,27 @@ import { logAuditEvent } from '@/src/services/auditService';
 import { registerDevice } from '@/src/services/deviceService';
 import type { Sales } from '@/src/types';
 import { Session, User } from '@supabase/supabase-js';
+import { router } from 'expo-router';
 import {
-    createContext,
-    useCallback,
-    useEffect,
-    useMemo,
-    useState,
-    type ReactNode,
+  createContext,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
 } from 'react';
 
 type PasswordAuthResponse = {
   access_token: string;
   refresh_token: string;
+};
+
+type SignUpParams = {
+  username: string;
+  email: string;
+  password: string;
+  name?: string;
+  salesCode?: string;
 };
 
 interface AuthContextValue {
@@ -25,6 +34,7 @@ interface AuthContextValue {
   isLoading: boolean;
   isAdmin: boolean;
   signIn: (email: string, password: string) => Promise<void>;
+  signUp: (params: SignUpParams) => Promise<void>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
 }
@@ -138,12 +148,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await registerDevice();
   }, []);
 
+  // signUp only creates the account (auth.users + public.sales rows via the
+  // signup_sales_user RPC). It does NOT sign the user in — the app takes
+  // them back to the login screen afterward so they sign in explicitly.
+  const signUp = useCallback(
+    async ({ username, email, password, name, salesCode }: SignUpParams) => {
+      const trimmedUsername = username.trim();
+      const trimmedEmail = email.trim();
+
+      const { error: rpcError } = await supabase.rpc('signup_sales_user', {
+        p_username: trimmedUsername,
+        p_email: trimmedEmail,
+        p_password: password,
+        p_name: name?.trim() || null,
+        p_sales_code: salesCode?.trim() || null,
+      });
+
+      if (rpcError) {
+        throw new Error(rpcError.message);
+      }
+    },
+    []
+  );
+
   const signOut = useCallback(async () => {
     const { error } = await supabase.auth.signOut();
     if (error) {
       throw new Error(error.message);
     }
     setProfile(null);
+    router.replace('/auth/login');
   }, []);
 
   const value = useMemo<AuthContextValue>(
@@ -154,10 +188,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isLoading,
       isAdmin: profile?.role === 'admin',
       signIn,
+      signUp,
       signOut,
       refreshProfile,
     }),
-    [session, profile, isLoading, signIn, signOut, refreshProfile]
+    [session, profile, isLoading, signIn, signUp, signOut, refreshProfile]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

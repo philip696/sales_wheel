@@ -16,18 +16,26 @@ import {
   View,
 } from 'react-native';
 
-export default function LoginScreen() {
-  const { signIn } = useAuth();
+export default function SignUpScreen() {
+  const { signUp } = useAuth();
+  const [username, setUsername] = useState('');
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const handleLogin = async () => {
+  const handleSignUp = async () => {
     if (!config.isSupabaseConfigured) {
       Alert.alert(
         'Supabase Not Configured',
         'Set EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY in your .env file, then restart the app.'
       );
+      return;
+    }
+
+    if (username.trim().length < 3) {
+      Alert.alert('Invalid Username', 'Username must be at least 3 characters.');
       return;
     }
 
@@ -41,13 +49,25 @@ export default function LoginScreen() {
       return;
     }
 
+    if (password !== confirmPassword) {
+      Alert.alert('Password Mismatch', 'Passwords do not match.');
+      return;
+    }
+
     setLoading(true);
     try {
-      await signIn(email, password);
-      router.replace('/(sales)/attendance');
+      await signUp({
+        username,
+        email,
+        password,
+        name: name || undefined,
+      });
+      Alert.alert('Account Created', 'You can now sign in with your new account.', [
+        { text: 'OK', onPress: () => router.replace('/auth/login') },
+      ]);
     } catch (error) {
       Alert.alert(
-        'Login Failed',
+        'Sign Up Failed',
         error instanceof Error ? error.message : 'Unknown error'
       );
     } finally {
@@ -65,8 +85,8 @@ export default function LoginScreen() {
         keyboardShouldPersistTaps="handled"
       >
         <ScreenContainer
-          title="Sales Attendance"
-          subtitle="Sign in to verify attendance and spin for rewards"
+          title="Create Account"
+          subtitle="Sign up to verify attendance and spin for rewards"
           style={styles.screenContainer}
         >
           {!config.isSupabaseConfigured ? (
@@ -78,6 +98,17 @@ export default function LoginScreen() {
             </View>
           ) : null}
 
+          <FormInput
+            placeholder="Username"
+            autoCapitalize="none"
+            value={username}
+            onChangeText={setUsername}
+          />
+          <FormInput
+            placeholder="Full Name (optional)"
+            value={name}
+            onChangeText={setName}
+          />
           <FormInput
             placeholder="Email"
             autoCapitalize="none"
@@ -91,15 +122,17 @@ export default function LoginScreen() {
             value={password}
             onChangeText={setPassword}
           />
+          <FormInput
+            placeholder="Confirm Password"
+            secureTextEntry
+            value={confirmPassword}
+            onChangeText={setConfirmPassword}
+          />
 
-          <PrimaryButton title="Sign In" loading={loading} onPress={handleLogin} />
+          <PrimaryButton title="Sign Up" loading={loading} onPress={handleSignUp} />
 
-          <Link href="/auth/signup" style={styles.devLink}>
-            <Text style={styles.devLinkText}>Don&apos;t have an account? Sign up</Text>
-          </Link>
-
-          <Link href="/(sales)/attendance" style={styles.devLink}>
-            <Text style={styles.devLinkText}>GPS Prototype (dev)</Text>
+          <Link href="/auth/login" style={styles.devLink}>
+            <Text style={styles.devLinkText}>Already have an account? Sign in</Text>
           </Link>
         </ScreenContainer>
       </ScrollView>

@@ -4,8 +4,8 @@ import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
 import 'react-native-reanimated';
 
-import { AuthProvider } from '@/src/features/auth/AuthContext';
 import { AttendanceFlowProvider } from '@/src/features/attendance/AttendanceFlowContext';
+import { AuthProvider } from '@/src/features/auth/AuthContext';
 
 export { ErrorBoundary } from 'expo-router';
 
@@ -36,6 +36,7 @@ export default function RootLayout() {
         <Stack screenOptions={{ headerShown: false }}>
           <Stack.Screen name="index" />
           <Stack.Screen name="auth/login" />
+          <Stack.Screen name="auth/signup" />
           <Stack.Screen name="(sales)" />
           <Stack.Screen name="admin" />
         </Stack>
