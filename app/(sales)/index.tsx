@@ -1,317 +1,634 @@
 import { router } from 'expo-router';
+
 import { StyleSheet, Text, View } from 'react-native';
 
+
+
 import { PrimaryButton } from '@/src/components/PrimaryButton';
+
 import { ScreenContainer } from '@/src/components/ScreenContainer';
+
 import { useAuth } from '@/src/features/auth/useAuth';
 
+
+
 export default function SalesHomeScreen() {
-  const { profile, signOut } = useAuth();
 
-  return (
-    <ScreenContainer
-      title={`Hello, ${profile?.name ?? 'Sales'}`}
-      subtitle="Manage your store visits and rewards"
-    >
-      {/* Welcome Card */}
-      <View style={styles.welcomeCard}>
-        <View style={styles.welcomeIcon}>
-          <Text style={styles.welcomeEmoji}>👋</Text>
-        </View>
+const { profile, signOut } = useAuth();
 
-        <View style={styles.welcomeContent}>
-          <Text style={styles.welcomeTitle}>
-            Ready for today's visits?
-          </Text>
 
-          <Text style={styles.welcomeText}>
-            Complete your store attendance to unlock the
-            reward wheel.
-          </Text>
-        </View>
-      </View>
 
-      {/* Attendance */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>
-          STORE ATTENDANCE
-        </Text>
+return (
 
-        <View style={styles.card}>
-          <View style={styles.cardIcon}>
-            <Text style={styles.cardEmoji}>📍</Text>
-          </View>
+<ScreenContainer
 
-          <View style={styles.cardContent}>
-            <Text style={styles.cardTitle}>
-              Start Attendance
-            </Text>
+title={`Hello, ${profile?.name ?? 'Sales'}`}
 
-            <Text style={styles.cardText}>
-              Select your store, verify your GPS location,
-              and take a fresh photo.
-            </Text>
-          </View>
+subtitle="Manage your store visits and rewards"
 
-          <PrimaryButton
-            title="SELECT STORE"
-            onPress={() =>
-              router.push('/(sales)/stores')
-            }
-          />
-        </View>
-      </View>
+>
 
-      {/* Rewards */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>
-          REWARDS
-        </Text>
+{/* Welcome Card */}
 
-        <View style={styles.rewardCard}>
-          <View style={styles.rewardIcon}>
-            <Text style={styles.rewardEmoji}>🎡</Text>
-          </View>
+<View style={styles.welcomeCard}>
 
-          <View style={styles.rewardContent}>
-            <Text style={styles.rewardTitle}>
-              Spin the Wheel
-            </Text>
+<View style={styles.welcomeIcon}>
 
-            <Text style={styles.rewardText}>
-              Complete an approved attendance to unlock
-              your reward.
-            </Text>
-          </View>
+<Text style={styles.welcomeEmoji}>👋</Text>
 
-          <PrimaryButton
-            title="SPIN"
-            variant="secondary"
-            onPress={() =>
-              router.push('/(sales)/spin')
-            }
-          />
-        </View>
-      </View>
+</View>
 
-      {/* History */}
-      <View style={styles.historyCard}>
-        <View>
-          <Text style={styles.historyTitle}>
-            📋  Visit History
-          </Text>
 
-          <Text style={styles.historyText}>
-            View your previous attendance and rewards.
-          </Text>
-        </View>
 
-        <PrimaryButton
-          title="VIEW"
-          variant="secondary"
-          onPress={() =>
-            router.push('/(sales)/history')
-          }
-        />
-      </View>
+<View style={styles.welcomeContent}>
 
-      {/* Sign Out */}
-      <PrimaryButton
-        title="SIGN OUT"
-        variant="danger"
-        onPress={signOut}
-        style={styles.signOut}
-      />
+<Text style={styles.welcomeTitle}>
 
-      <Text style={styles.footer}>
-        Store attendance and rewards are securely
-        validated by the server.
-      </Text>
-    </ScreenContainer>
-  );
+Ready for today's visits?
+
+</Text>
+
+
+
+<Text style={styles.welcomeText}>
+
+Complete your store attendance to unlock the
+
+reward wheel.
+
+</Text>
+
+</View>
+
+</View>
+
+
+
+{/* Attendance */}
+
+<View style={styles.section}>
+
+<Text style={styles.sectionTitle}>
+
+STORE ATTENDANCE
+
+</Text>
+
+
+
+<View style={styles.card}>
+
+<View style={styles.cardIcon}>
+
+<Text style={styles.cardEmoji}>📍</Text>
+
+</View>
+
+
+
+<View style={styles.cardContent}>
+
+<Text style={styles.cardTitle}>
+
+Start Attendance
+
+</Text>
+
+
+
+<Text style={styles.cardText}>
+
+Select your store, verify your GPS location,
+
+and take a fresh photo.
+
+</Text>
+
+</View>
+
+
+
+<PrimaryButton
+
+title="SELECT STORE"
+
+onPress={() =>
+
+router.push('/(sales)/stores')
+
 }
 
+/>
+
+</View>
+
+</View>
+
+
+
+{/* Rewards */}
+
+<View style={styles.section}>
+
+<Text style={styles.sectionTitle}>
+
+REWARDS
+
+</Text>
+
+
+
+<View style={styles.rewardCard}>
+
+<View style={styles.rewardIcon}>
+
+<Text style={styles.rewardEmoji}>🎡</Text>
+
+</View>
+
+
+
+<View style={styles.rewardContent}>
+
+<Text style={styles.rewardTitle}>
+
+Spin the Wheel
+
+</Text>
+
+
+
+<Text style={styles.rewardText}>
+
+Complete an approved attendance to unlock
+
+your reward.
+
+</Text>
+
+</View>
+
+
+
+<PrimaryButton
+
+title="SPIN"
+
+variant="secondary"
+
+onPress={() =>
+
+router.push('/(sales)/spin')
+
+}
+
+/>
+
+</View>
+
+</View>
+
+
+
+{/* History */}
+
+<View style={styles.historyCard}>
+
+<View>
+
+<Text style={styles.historyTitle}>
+
+📋 Visit History
+
+</Text>
+
+
+
+<Text style={styles.historyText}>
+
+View your previous attendance and rewards.
+
+</Text>
+
+</View>
+
+
+
+<PrimaryButton
+
+title="VIEW"
+
+variant="secondary"
+
+onPress={() =>
+
+router.push('/(sales)/history')
+
+}
+
+/>
+
+</View>
+
+
+
+{/* Sign Out */}
+
+<PrimaryButton
+
+title="SIGN OUT"
+
+variant="danger"
+
+onPress={signOut}
+
+style={styles.signOut}
+
+/>
+
+
+
+<Text style={styles.footer}>
+
+Store attendance and rewards are securely
+
+validated by the server.
+
+</Text>
+
+</ScreenContainer>
+
+);
+
+}
+
+
+
 const styles = StyleSheet.create({
-  /* WELCOME */
 
-  welcomeCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#eff6ff',
-    borderWidth: 1,
-    borderColor: '#bfdbfe',
-    borderRadius: 17,
-    padding: 16,
-    marginBottom: 22,
-  },
+/* WELCOME */
 
-  welcomeIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#dbeafe',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
 
-  welcomeEmoji: {
-    fontSize: 23,
-  },
 
-  welcomeContent: {
-    flex: 1,
-  },
+welcomeCard: {
 
-  welcomeTitle: {
-    fontSize: 14,
-    fontWeight: '900',
-    color: '#1e40af',
-    marginBottom: 4,
-  },
+flexDirection: 'row',
 
-  welcomeText: {
-    fontSize: 11,
-    color: '#64748b',
-    lineHeight: 16,
-  },
+alignItems: 'center',
 
-  /* SECTIONS */
+backgroundColor: '#eff6ff',
 
-  section: {
-    marginBottom: 18,
-  },
+borderWidth: 1,
 
-  sectionTitle: {
-    fontSize: 10,
-    fontWeight: '900',
-    color: '#9ca3af',
-    letterSpacing: 1,
-    marginBottom: 8,
-  },
+borderColor: '#bfdbfe',
 
-  /* ATTENDANCE */
+borderRadius: 17,
 
-  card: {
-    backgroundColor: '#ffffff',
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    borderRadius: 17,
-    padding: 16,
-  },
+padding: 16,
 
-  cardIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#f1f5f9',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 11,
-  },
+marginBottom: 22,
 
-  cardEmoji: {
-    fontSize: 23,
-  },
+},
 
-  cardContent: {
-    marginBottom: 13,
-  },
 
-  cardTitle: {
-    fontSize: 17,
-    fontWeight: '900',
-    color: '#111827',
-    marginBottom: 5,
-  },
 
-  cardText: {
-    fontSize: 11,
-    color: '#64748b',
-    lineHeight: 17,
-  },
+welcomeIcon: {
 
-  /* REWARDS */
+width: 48,
 
-  rewardCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#fffbeb',
-    borderWidth: 1,
-    borderColor: '#fde68a',
-    borderRadius: 17,
-    padding: 14,
-  },
+height: 48,
 
-  rewardIcon: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    backgroundColor: '#fef3c7',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 11,
-  },
+borderRadius: 24,
 
-  rewardEmoji: {
-    fontSize: 22,
-  },
+backgroundColor: '#dbeafe',
 
-  rewardContent: {
-    flex: 1,
-    marginRight: 8,
-  },
+alignItems: 'center',
 
-  rewardTitle: {
-    fontSize: 14,
-    fontWeight: '900',
-    color: '#92400e',
-    marginBottom: 3,
-  },
+justifyContent: 'center',
 
-  rewardText: {
-    fontSize: 10,
-    color: '#78716c',
-    lineHeight: 15,
-  },
+marginRight: 12,
 
-  /* HISTORY */
+},
 
-  historyCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#f8fafc',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 15,
-    padding: 14,
-    marginBottom: 18,
-  },
 
-  historyTitle: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: '#374151',
-    marginBottom: 3,
-  },
 
-  historyText: {
-    fontSize: 10,
-    color: '#94a3b8',
-  },
+welcomeEmoji: {
 
-  /* FOOTER */
+fontSize: 23,
 
-  signOut: {
-    marginBottom: 12,
-  },
+},
 
-  footer: {
-    textAlign: 'center',
-    color: '#9ca3af',
-    fontSize: 9,
-    lineHeight: 14,
-    marginBottom: 10,
-  },
+
+
+welcomeContent: {
+
+flex: 1,
+
+},
+
+
+
+welcomeTitle: {
+
+fontSize: 14,
+
+fontWeight: '900',
+
+color: '#1e40af',
+
+marginBottom: 4,
+
+},
+
+
+
+welcomeText: {
+
+fontSize: 11,
+
+color: '#64748b',
+
+lineHeight: 16,
+
+},
+
+
+
+/* SECTIONS */
+
+
+
+section: {
+
+marginBottom: 18,
+
+},
+
+
+
+sectionTitle: {
+
+fontSize: 10,
+
+fontWeight: '900',
+
+color: '#9ca3af',
+
+letterSpacing: 1,
+
+marginBottom: 8,
+
+},
+
+
+
+/* ATTENDANCE */
+
+
+
+card: {
+
+backgroundColor: '#ffffff',
+
+borderWidth: 1,
+
+borderColor: '#e5e7eb',
+
+borderRadius: 17,
+
+padding: 16,
+
+},
+
+
+
+cardIcon: {
+
+width: 48,
+
+height: 48,
+
+borderRadius: 24,
+
+backgroundColor: '#f1f5f9',
+
+alignItems: 'center',
+
+justifyContent: 'center',
+
+marginBottom: 11,
+
+},
+
+
+
+cardEmoji: {
+
+fontSize: 23,
+
+},
+
+
+
+cardContent: {
+
+marginBottom: 13,
+
+},
+
+
+
+cardTitle: {
+
+fontSize: 17,
+
+fontWeight: '900',
+
+color: '#111827',
+
+marginBottom: 5,
+
+},
+
+
+
+cardText: {
+
+fontSize: 11,
+
+color: '#64748b',
+
+lineHeight: 17,
+
+},
+
+
+
+/* REWARDS */
+
+
+
+rewardCard: {
+
+flexDirection: 'row',
+
+alignItems: 'center',
+
+backgroundColor: '#fffbeb',
+
+borderWidth: 1,
+
+borderColor: '#fde68a',
+
+borderRadius: 17,
+
+padding: 14,
+
+},
+
+
+
+rewardIcon: {
+
+width: 46,
+
+height: 46,
+
+borderRadius: 23,
+
+backgroundColor: '#fef3c7',
+
+alignItems: 'center',
+
+justifyContent: 'center',
+
+marginRight: 11,
+
+},
+
+
+
+rewardEmoji: {
+
+fontSize: 22,
+
+},
+
+
+
+rewardContent: {
+
+flex: 1,
+
+marginRight: 8,
+
+},
+
+
+
+rewardTitle: {
+
+fontSize: 14,
+
+fontWeight: '900',
+
+color: '#92400e',
+
+marginBottom: 3,
+
+},
+
+
+
+rewardText: {
+
+fontSize: 10,
+
+color: '#78716c',
+
+lineHeight: 15,
+
+},
+
+
+
+/* HISTORY */
+
+
+
+historyCard: {
+
+flexDirection: 'row',
+
+alignItems: 'center',
+
+justifyContent: 'space-between',
+
+backgroundColor: '#f8fafc',
+
+borderWidth: 1,
+
+borderColor: '#e2e8f0',
+
+borderRadius: 15,
+
+padding: 14,
+
+marginBottom: 18,
+
+},
+
+
+
+historyTitle: {
+
+fontSize: 13,
+
+fontWeight: '800',
+
+color: '#374151',
+
+marginBottom: 3,
+
+},
+
+
+
+historyText: {
+
+fontSize: 10,
+
+color: '#94a3b8',
+
+},
+
+
+
+/* FOOTER */
+
+
+
+signOut: {
+
+marginBottom: 12,
+
+},
+
+
+
+footer: {
+
+textAlign: 'center',
+
+color: '#9ca3af',
+
+fontSize: 9,
+
+lineHeight: 14,
+
+marginBottom: 10,
+
+},
+
 });
+
