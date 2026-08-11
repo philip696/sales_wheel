@@ -1,3 +1,4 @@
+import { AppAlert, type AppAlertButton } from '@/src/components/AppAlert';
 import { FormInput } from '@/src/components/FormInput';
 import { PrimaryButton } from '@/src/components/PrimaryButton';
 import { ScreenContainer } from '@/src/components/ScreenContainer';
@@ -5,8 +6,10 @@ import { geocodeAddress } from '@/src/services/geocodingService';
 import {
   createStore,
   deleteStore,
+  forceDeleteStore,
   listAllStores,
   setStoreStatus,
+  StoreHasHistoryError,
   updateStore,
 } from '@/src/services/storeService';
 import type { EntityStatus, Store, StoreInput } from '@/src/types';
@@ -20,7 +23,6 @@ import {
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   FlatList,
   KeyboardAvoidingView,
   Modal,
@@ -65,6 +67,19 @@ export default function AdminStoresScreen() {
   const [formError, setFormError] = useState<string | null>(null);
   const [geocoding, setGeocoding] = useState(false);
   const [geocodeMatch, setGeocodeMatch] = useState<string | null>(null);
+  const [alertState, setAlertState] = useState<{
+    title: string;
+    message?: string;
+    buttons?: AppAlertButton[];
+  } | null>(null);
+
+  const showAlert = (
+    title: string,
+    message?: string,
+    buttons?: AppAlertButton[]
+  ) => {
+    setAlertState({ title, message, buttons });
+  };
 
   const load = useCallback(async () => {
     setError(null);
@@ -199,15 +214,45 @@ export default function AdminStoresScreen() {
       await setStoreStatus(store.id, nextStatus);
       await load();
     } catch (err) {
-      Alert.alert(
+      showAlert(
         'Update Failed',
         err instanceof Error ? err.message : 'Could not update store status.'
       );
     }
   };
 
+  const handleForceDelete = (store: Store) => {
+    showAlert(
+      'Permanently Delete Everything?',
+      `"${store.name}" has attendance and/or spin history. Deleting it will ` +
+        `also permanently erase all attendance records and spin history tied ` +
+        `to this store, for every sales rep who ever checked in here. ` +
+        `This cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete Everything',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await forceDeleteStore(store.id);
+              await load();
+            } catch (err) {
+              showAlert(
+                'Delete Failed',
+                err instanceof Error
+                  ? err.message
+                  : 'Could not delete this store.'
+              );
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const handleDelete = (store: Store) => {
-    Alert.alert(
+    showAlert(
       'Delete Store',
       `Delete "${store.name}"? This cannot be undone.`,
       [
@@ -220,9 +265,29 @@ export default function AdminStoresScreen() {
               await deleteStore(store.id);
               await load();
             } catch (err) {
+              if (err instanceof StoreHasHistoryError) {
+                showAlert(
+                  'Store Has History',
+                  `"${store.name}" has attendance or spin records, so it can't ` +
+                    `be deleted on its own.`,
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                      text: 'Deactivate Instead',
+                      onPress: () => handleToggleStatus(store),
+                    },
+                    {
+                      text: 'Delete Everything',
+                      style: 'destructive',
+                      onPress: () => handleForceDelete(store),
+                    },
+                  ]
+                );
+                return;
+              }
               const message =
                 err instanceof Error ? err.message : 'Could not delete store.';
-              Alert.alert('Delete Failed', message, [
+              showAlert('Delete Failed', message, [
                 { text: 'Cancel', style: 'cancel' },
                 {
                   text: 'Deactivate Instead',
@@ -460,6 +525,14 @@ export default function AdminStoresScreen() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      <AppAlert
+        visible={!!alertState}
+        title={alertState?.title ?? ''}
+        message={alertState?.message}
+        buttons={alertState?.buttons}
+        onRequestClose={() => setAlertState(null)}
+      />
     </ScreenContainer>
   );
 }

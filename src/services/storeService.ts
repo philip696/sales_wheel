@@ -14,6 +14,22 @@ const DEFAULT_PAGE_SIZE = 20;
 const PG_UNIQUE_VIOLATION = '23505';
 const PG_FOREIGN_KEY_VIOLATION = '23503';
 
+/**
+ * Thrown by `deleteStore` when the store can't be removed because
+ * attendance/spin rows still reference it. Callers can catch this
+ * specifically to offer `forceDeleteStore` as a next step.
+ */
+export class StoreHasHistoryError extends Error {
+  constructor(storeId: string) {
+    super(
+      'This store has attendance or spin history and cannot be deleted directly.'
+    );
+    this.name = 'StoreHasHistoryError';
+    this.storeId = storeId;
+  }
+  storeId: string;
+}
+
 export async function searchStores(
   params: StoreSearchParams = {}
 ): Promise<PaginatedResult<Store>> {
@@ -209,15 +225,68 @@ export async function setStoreStatus(
  * that already has history — callers should offer deactivation
  * (`setStoreStatus(id, 'inactive')`) as the alternative in that case.
  */
+/**
+ * Permanently deletes a store. `attendance` and `spins` reference stores with
+ * ON DELETE RESTRICT, so this will fail with a friendly error for any store
+ * that already has history — callers should offer `forceDeleteStore` (which
+ * also wipes that history) or `setStoreStatus(id, 'inactive')` instead.
+ */
 export async function deleteStore(storeId: string): Promise<void> {
   const { error } = await supabase.from('stores').delete().eq('id', storeId);
 
   if (error) {
     if (error.code === PG_FOREIGN_KEY_VIOLATION) {
-      throw new Error(
-        'This store has attendance or spin history and cannot be deleted. Deactivate it instead.'
-      );
+      throw new StoreHasHistoryError(storeId);
     }
     throw new Error(error.message);
+  }
+}
+
+/**
+ * Permanently deletes a store, and everything that references it.
+ *
+ * `attendance` and `spins` reference stores with ON DELETE RESTRICT, so a
+ * plain delete (see `deleteStore` above) fails for any store with history.
+ * This variant clears that history first, in FK-safe order, then deletes
+ * the store itself:
+ *
+ *   spins (references both store and attendance) -> attendance -> store
+ *
+ * `audit_log.store_id` is ON DELETE SET NULL, so those rows are preserved
+ * automatically with the store reference cleared — no action needed there.
+ *
+ * This is destructive and irreversible. Callers should get an explicit,
+ * unambiguous confirmation from the admin before calling this — a generic
+ * "Delete?" alert is not enough, since it also erases attendance/spin
+ * history for every sales rep who ever visited this store.
+ */
+export async function forceDeleteStore(storeId: string): Promise<void> {
+  const { error: spinsError } = await supabase
+    .from('spins')
+    .delete()
+    .eq('store_id', storeId);
+
+  if (spinsError) {
+    throw new Error(`Could not clear spin history: ${spinsError.message}`);
+  }
+
+  const { error: attendanceError } = await supabase
+    .from('attendance')
+    .delete()
+    .eq('store_id', storeId);
+
+  if (attendanceError) {
+    throw new Error(
+      `Could not clear attendance history: ${attendanceError.message}`
+    );
+  }
+
+  const { error: storeError } = await supabase
+    .from('stores')
+    .delete()
+    .eq('id', storeId);
+
+  if (storeError) {
+    throw new Error(storeError.message);
   }
 }
