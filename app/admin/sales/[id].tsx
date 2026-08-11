@@ -10,6 +10,7 @@ import React, {
 } from 'react';
 import {
   ActivityIndicator,
+  Image,
   Modal,
   Pressable,
   ScrollView,
@@ -20,6 +21,9 @@ import {
 
 import { ScreenContainer } from '@/src/components/ScreenContainer';
 import { supabase } from '@/src/lib/supabase';
+
+const ATTENDANCE_BUCKET =
+  'attendance-photos';
 
 type SalesUser = {
   id: string;
@@ -34,15 +38,19 @@ type Attendance = {
   created_at: string | null;
   server_created_at: string | null;
 
-  /*
-   * These fields are included when they exist
-   * in the attendance table.
-   */
   photo_path?: string | null;
   photo_url?: string | null;
+
   latitude?: number | null;
   longitude?: number | null;
+  gps_accuracy?: number | null;
+  distance_meters?: number | null;
+
+  client_captured_at?: string | null;
+
   rejection_reason?: string | null;
+
+  store_id?: string | null;
 };
 
 type DayStatus =
@@ -56,7 +64,7 @@ type CalendarDay = {
   dateKey: string;
   dayNumber: number;
   status: DayStatus;
-  attendance: Attendance | null;
+  attendance: Attendance[];
 };
 
 const MONTH_NAMES = [
@@ -143,9 +151,7 @@ const formatAttendanceTime = (
     return 'No recorded time';
   }
 
-  const date = new Date(
-    timestamp,
-  );
+  const date = new Date(timestamp);
 
   if (
     Number.isNaN(
@@ -156,6 +162,92 @@ const formatAttendanceTime = (
   }
 
   return date.toLocaleString();
+};
+
+/*
+ * Create a signed URL for an attendance
+ * photo using the same storage logic as
+ * admin/attendance.tsx.
+ */
+const getAttendancePhotoUrl =
+  async (
+    photoPath:
+      | string
+      | null
+      | undefined,
+  ): Promise<
+    string | null
+  > => {
+    if (!photoPath) {
+      return null;
+    }
+
+    try {
+      const {
+        data,
+        error,
+      } = await supabase.storage
+        .from(
+          ATTENDANCE_BUCKET,
+        )
+        .createSignedUrl(
+          photoPath,
+          60 * 60,
+        );
+
+      if (error) {
+        console.error(
+          'ATTENDANCE PHOTO ERROR:',
+          {
+            photoPath,
+            message:
+              error.message,
+          },
+        );
+
+        return null;
+      }
+
+      return (
+        data?.signedUrl ??
+        null
+      );
+    } catch (error) {
+      console.error(
+        'ATTENDANCE PHOTO URL ERROR:',
+        error,
+      );
+
+      return null;
+    }
+  };
+
+/*
+ * Add signed photo URLs to attendance
+ * records without changing the underlying
+ * attendance data or calendar logic.
+ */
+const addPhotoUrls = async (
+  records: Attendance[],
+): Promise<
+  Attendance[]
+> => {
+  return Promise.all(
+    records.map(
+      async (record) => {
+        const photoUrl =
+          await getAttendancePhotoUrl(
+            record.photo_path,
+          );
+
+        return {
+          ...record,
+          photo_url:
+            photoUrl,
+        };
+      },
+    ),
+  );
 };
 
 export default function AdminSalesCalendarScreen() {
@@ -194,7 +286,10 @@ export default function AdminSalesCalendarScreen() {
 
   /*
    * Load the selected salesperson and
-   * their attendance records.
+   * ALL of their attendance records.
+   *
+   * Photo URLs are generated from the
+   * photo_path using Supabase signed URLs.
    */
   const fetchData = useCallback(
     async () => {
@@ -251,13 +346,25 @@ export default function AdminSalesCalendarScreen() {
           throw attendanceResult.error;
         }
 
+        const records =
+          (attendanceResult.data ??
+            []) as Attendance[];
+
+        /*
+         * Generate signed URLs for all
+         * attendance photos.
+         */
+        const recordsWithPhotos =
+          await addPhotoUrls(
+            records,
+          );
+
         setSalesUser(
           salesResult.data,
         );
 
         setAttendance(
-          attendanceResult.data ??
-            [],
+          recordsWithPhotos,
         );
       } catch (err) {
         console.error(
@@ -295,19 +402,19 @@ export default function AdminSalesCalendarScreen() {
   };
 
   /*
-   * Build:
+   * Group ALL attendance records by date.
    *
-   * YYYY-MM-DD -> latest attendance record
+   * YYYY-MM-DD -> Attendance[]
    *
-   * This uses the actual timestamp stored by
-   * the attendance system.
+   * This allows multiple attendance
+   * records on the same date.
    */
   const attendanceByDate =
     useMemo(() => {
       const map =
         new Map<
           string,
-          Attendance
+          Attendance[]
         >();
 
       for (const record of attendance) {
@@ -333,25 +440,109 @@ export default function AdminSalesCalendarScreen() {
         const dateKey =
           formatDateKey(date);
 
-        /*
-         * Attendance is fetched newest first,
-         * so keep the first record for each date.
-         */
-        if (
-          !map.has(dateKey)
-        ) {
-          map.set(
-            dateKey,
-            record,
-          );
-        }
+        const existing =
+          map.get(dateKey) ??
+          [];
+
+        existing.push(record);
+
+        map.set(
+          dateKey,
+          existing,
+        );
+      }
+
+      /*
+       * Make sure every date's records are
+       * displayed chronologically.
+       */
+      for (const [
+        dateKey,
+        records,
+      ] of map.entries()) {
+        records.sort(
+          (a, b) => {
+            const aTime =
+              new Date(
+                a.server_created_at ??
+                  a.created_at ??
+                  0,
+              ).getTime();
+
+            const bTime =
+              new Date(
+                b.server_created_at ??
+                  b.created_at ??
+                  0,
+              ).getTime();
+
+            return (
+              aTime - bTime
+            );
+          },
+        );
+
+        map.set(
+          dateKey,
+          records,
+        );
       }
 
       return map;
     }, [attendance]);
 
   /*
-   * Generate the calendar.
+   * Determine the color of a date.
+   *
+   * If there are multiple attendances:
+   *
+   * - Any approved/attended record -> green
+   * - Otherwise any pending record -> yellow
+   * - Otherwise -> red
+   */
+  const getDayStatus = (
+    records: Attendance[],
+    date: Date,
+  ): DayStatus => {
+    if (records.length > 0) {
+      const statuses =
+        records.map(
+          (record) =>
+            getAttendanceStatus(
+              record.status,
+            ),
+        );
+
+      if (
+        statuses.includes(
+          'attended',
+        )
+      ) {
+        return 'attended';
+      }
+
+      if (
+        statuses.includes(
+          'pending',
+        )
+      ) {
+        return 'pending';
+      }
+
+      return 'none';
+    }
+
+    if (
+      isFutureDate(date)
+    ) {
+      return 'future';
+    }
+
+    return 'none';
+  };
+
+  /*
+   * Generate calendar.
    */
   const calendarDays =
     useMemo(() => {
@@ -380,10 +571,6 @@ export default function AdminSalesCalendarScreen() {
         | null
       )[] = [];
 
-      /*
-       * Empty cells before the first
-       * day of the month.
-       */
       for (
         let i = 0;
         i < firstDay.getDay();
@@ -407,41 +594,23 @@ export default function AdminSalesCalendarScreen() {
         const dateKey =
           formatDateKey(date);
 
-        const record =
+        const records =
           attendanceByDate.get(
             dateKey,
+          ) ?? [];
+
+        const status =
+          getDayStatus(
+            records,
+            date,
           );
-
-        let status: DayStatus;
-
-        if (record) {
-          status =
-            getAttendanceStatus(
-              record.status,
-            );
-        } else if (
-          isFutureDate(date)
-        ) {
-          /*
-           * Tomorrow and all future days
-           * remain white.
-           */
-          status = 'future';
-        } else {
-          /*
-           * Today and previous days with
-           * no attendance are red.
-           */
-          status = 'none';
-        }
 
         days.push({
           date,
           dateKey,
           dayNumber: day,
           status,
-          attendance:
-            record ?? null,
+          attendance: records,
         });
       }
 
@@ -452,15 +621,17 @@ export default function AdminSalesCalendarScreen() {
     ]);
 
   /*
-   * IMPORTANT:
+   * Open a specific calendar date.
    *
-   * The admin selects a specific salesperson
-   * through salesId and a specific date through
-   * dateKey.
+   * Fetch ALL records for:
    *
-   * We then query attendance again using BOTH
-   * values so the popup is tied exactly to
-   * that salesperson + that date.
+   * sales_id = selected salesperson
+   * date = selected calendar date
+   *
+   * No .limit(1).
+   *
+   * Photo URLs are also generated for the
+   * exact records returned by this query.
    */
   const openDay = async (
     day: CalendarDay,
@@ -474,27 +645,11 @@ export default function AdminSalesCalendarScreen() {
       return;
     }
 
-    if (
-      day.status ===
-      'none'
-    ) {
-      setSelectedDay(day);
-      setModalVisible(true);
-      return;
-    }
-
     if (!salesId) {
       return;
     }
 
     try {
-      /*
-       * Create the beginning and end of the
-       * selected calendar day.
-       *
-       * This means an attendance from another
-       * date cannot accidentally appear.
-       */
       const startOfDay =
         new Date(
           day.date.getFullYear(),
@@ -538,10 +693,9 @@ export default function AdminSalesCalendarScreen() {
         .order(
           'server_created_at',
           {
-            ascending: false,
+            ascending: true,
           },
-        )
-        .limit(1);
+        );
 
       if (
         attendanceError
@@ -549,29 +703,24 @@ export default function AdminSalesCalendarScreen() {
         throw attendanceError;
       }
 
-      /*
-       * If the exact date has an attendance
-       * record, use the fresh database result.
-       */
-      const exactAttendance =
-        data &&
-        data.length > 0
-          ? data[0]
-          : null;
+      const exactAttendances =
+        await addPhotoUrls(
+          (data ??
+            []) as Attendance[],
+        );
+
+      const exactStatus =
+        getDayStatus(
+          exactAttendances,
+          day.date,
+        );
 
       setSelectedDay({
         ...day,
         attendance:
-          exactAttendance,
-        status: exactAttendance
-          ? getAttendanceStatus(
-              exactAttendance.status,
-            )
-          : isFutureDate(
-                day.date,
-              )
-            ? 'future'
-            : 'none',
+          exactAttendances,
+        status:
+          exactStatus,
       });
 
       setModalVisible(true);
@@ -582,8 +731,8 @@ export default function AdminSalesCalendarScreen() {
       );
 
       /*
-       * Fall back to the record already loaded
-       * for this exact calendar date.
+       * Fall back to the records already
+       * loaded for the selected date.
        */
       setSelectedDay(day);
       setModalVisible(true);
@@ -617,9 +766,6 @@ export default function AdminSalesCalendarScreen() {
       );
     };
 
-  /*
-   * Loading screen.
-   */
   if (loading) {
     return (
       <ScreenContainer
@@ -646,9 +792,6 @@ export default function AdminSalesCalendarScreen() {
     );
   }
 
-  /*
-   * Error screen.
-   */
   if (error) {
     return (
       <ScreenContainer
@@ -998,6 +1141,28 @@ export default function AdminSalesCalendarScreen() {
                           day.dayNumber
                         }
                       </Text>
+
+                      {day.attendance
+                        .length >
+                        1 && (
+                        <View
+                          style={
+                            styles.countBadge
+                          }
+                        >
+                          <Text
+                            style={
+                              styles.countBadgeText
+                            }
+                          >
+                            {
+                              day
+                                .attendance
+                                .length
+                            }
+                          </Text>
+                        </View>
+                      )}
                     </View>
                   </Pressable>
                 );
@@ -1087,14 +1252,57 @@ export default function AdminSalesCalendarScreen() {
               </Pressable>
             </View>
 
+            {/* Future */}
+            {selectedDay &&
+              selectedDay.status ===
+                'future' && (
+                <View
+                  style={
+                    styles.messageCard
+                  }
+                >
+                  <View
+                    style={[
+                      styles.messageIcon,
+                      styles.future,
+                    ]}
+                  >
+                    <Text
+                      style={
+                        styles.messageIconText
+                      }
+                    >
+                      —
+                    </Text>
+                  </View>
+
+                  <Text
+                    style={
+                      styles.messageTitle
+                    }
+                  >
+                    Future date
+                  </Text>
+
+                  <Text
+                    style={
+                      styles.messageText
+                    }
+                  >
+                    Attendance cannot
+                    exist for this
+                    date yet.
+                  </Text>
+                </View>
+              )}
+
             {/* No attendance */}
             {selectedDay &&
-              (
-                selectedDay.status ===
-                  'none' ||
-                selectedDay.status ===
-                  'future'
-              ) && (
+              selectedDay.status ===
+                'none' &&
+              selectedDay.attendance
+                .length ===
+                0 && (
                 <View
                   style={
                     styles.messageCard
@@ -1136,114 +1344,81 @@ export default function AdminSalesCalendarScreen() {
                 </View>
               )}
 
-            {/* Pending */}
+            {/* Multiple / single attendance records */}
             {selectedDay &&
-              selectedDay.status ===
-                'pending' && (
-                <View
+              selectedDay.attendance
+                .length >
+                0 && (
+                <ScrollView
                   style={
-                    styles.messageCard
+                    styles.attendanceList
+                  }
+                  contentContainerStyle={
+                    styles.attendanceListContent
+                  }
+                  showsVerticalScrollIndicator={
+                    true
                   }
                 >
                   <View
-                    style={[
-                      styles.messageIcon,
-                      styles.pending,
-                    ]}
+                    style={
+                      styles.recordsHeader
+                    }
                   >
                     <Text
                       style={
-                        styles.messageIconText
+                        styles.recordsTitle
                       }
                     >
-                      …
+                      {
+                        selectedDay
+                          .attendance
+                          .length
+                      }{' '}
+                      attendance
+                      {selectedDay
+                        .attendance
+                        .length ===
+                      1
+                        ? ''
+                        : 's'}
+                    </Text>
+
+                    <Text
+                      style={
+                        styles.recordsSubtitle
+                      }
+                    >
+                      All attendance
+                      records for this
+                      date
                     </Text>
                   </View>
 
-                  <Text
-                    style={
-                      styles.messageTitle
-                    }
-                  >
-                    Attendance is pending
-                  </Text>
-
-                  <Text
-                    style={
-                      styles.messageText
-                    }
-                  >
-                    This attendance record
-                    has been submitted
-                    and is waiting for
-                    approval.
-                  </Text>
-
-                  {selectedDay.attendance && (
-                    <AttendanceDetails
-                      attendance={
-                        selectedDay.attendance
-                      }
-                    />
+                  {selectedDay.attendance.map(
+                    (
+                      record,
+                      index,
+                    ) => (
+                      <AttendanceCard
+                        key={
+                          record.id ??
+                          `${selectedDay.dateKey}-${index}`
+                        }
+                        attendance={
+                          record
+                        }
+                        index={
+                          index
+                        }
+                        salesName={
+                          salesUser?.name ||
+                          'Sales User'
+                        }
+                      />
+                    ),
                   )}
-                </View>
-              )}
-
-            {/* Attended */}
-            {selectedDay &&
-              selectedDay.status ===
-                'attended' &&
-              selectedDay.attendance && (
-                <View
-                  style={
-                    styles.attendanceCard
-                  }
-                >
-                  <View
-                    style={
-                      styles.attendanceCardHeader
-                    }
-                  >
-                    <View>
-                      <Text
-                        style={
-                          styles.attendanceCardTitle
-                        }
-                      >
-                        Attendance Record
-                      </Text>
-
-                      <Text
-                        style={
-                          styles.attendanceCardSubtitle
-                        }
-                      >
-                        {salesUser?.name ||
-                          'Sales User'}
-                      </Text>
-                    </View>
-
-                    <View
-                      style={
-                        styles.approvedBadge
-                      }
-                    >
-                      <Text
-                        style={
-                          styles.approvedBadgeText
-                        }
-                      >
-                        ATTENDED
-                      </Text>
-                    </View>
-                  </View>
-
-                  <AttendanceDetails
-                    attendance={
-                      selectedDay.attendance
-                    }
-                  />
-                </View>
+                </ScrollView>
               )}
 
             <Pressable
@@ -1270,10 +1445,138 @@ export default function AdminSalesCalendarScreen() {
 }
 
 /*
- * Attendance details card.
+ * Individual attendance card.
  *
- * This is deliberately reusable for both
- * pending and attended records.
+ * Every database attendance row gets its own
+ * card. Therefore 3 attendance rows on the
+ * same date = 3 cards in the popup.
+ *
+ * The photo is now displayed using the same
+ * signed-URL + Image approach as
+ * admin/attendance.tsx.
+ */
+function AttendanceCard({
+  attendance,
+  index,
+  salesName,
+}: {
+  attendance: Attendance;
+  index: number;
+  salesName: string;
+}) {
+  const status =
+    attendance.status
+      ?.toLowerCase() ??
+    'unknown';
+
+  const isAttended =
+    status === 'approved' ||
+    status === 'attended' ||
+    status === 'present';
+
+  const isPending =
+    status === 'pending';
+
+  const isRejected =
+    status === 'rejected';
+
+  let badgeStyle =
+    styles.unknownBadge;
+
+  let badgeTextStyle =
+    styles.unknownBadgeText;
+
+  let badgeText =
+    attendance.status
+      ?.toUpperCase() ??
+    'UNKNOWN';
+
+  if (isAttended) {
+    badgeStyle =
+      styles.approvedBadge;
+
+    badgeTextStyle =
+      styles.approvedBadgeText;
+
+    badgeText = 'ATTENDED';
+  } else if (isPending) {
+    badgeStyle =
+      styles.pendingBadge;
+
+    badgeTextStyle =
+      styles.pendingBadgeText;
+
+    badgeText = 'PENDING';
+  } else if (isRejected) {
+    badgeStyle =
+      styles.rejectedBadge;
+
+    badgeTextStyle =
+      styles.rejectedBadgeText;
+
+    badgeText = 'REJECTED';
+  }
+
+  return (
+    <View
+      style={
+        styles.attendanceCard
+      }
+    >
+      <View
+        style={
+          styles.attendanceCardHeader
+        }
+      >
+        <View
+          style={
+            styles.attendanceCardHeaderLeft
+          }
+        >
+          <Text
+            style={
+              styles.attendanceCardTitle
+            }
+          >
+            Attendance #{index + 1}
+          </Text>
+
+          <Text
+            style={
+              styles.attendanceCardSubtitle
+            }
+          >
+            {salesName}
+          </Text>
+        </View>
+
+        <View
+          style={badgeStyle}
+        >
+          <Text
+            style={
+              badgeTextStyle
+            }
+          >
+            {badgeText}
+          </Text>
+        </View>
+      </View>
+
+      <AttendanceDetails
+        attendance={
+          attendance
+        }
+      />
+    </View>
+  );
+}
+
+/*
+ * Reusable attendance details.
+ *
+ * The photo section now renders the actual
+ * attendance image just like admin/attendance.
  */
 function AttendanceDetails({
   attendance,
@@ -1284,11 +1587,20 @@ function AttendanceDetails({
     attendance.server_created_at ??
     attendance.created_at;
 
-  const formattedDate =
+  const parsedDate =
     timestamp
-      ? new Date(
-          timestamp,
-        ).toLocaleDateString(
+      ? new Date(timestamp)
+      : null;
+
+  const validDate =
+    parsedDate &&
+    !Number.isNaN(
+      parsedDate.getTime(),
+    );
+
+  const formattedDate =
+    validDate && parsedDate
+      ? parsedDate.toLocaleDateString(
           undefined,
           {
             year: 'numeric',
@@ -1299,10 +1611,8 @@ function AttendanceDetails({
       : 'Not available';
 
   const formattedTime =
-    timestamp
-      ? new Date(
-          timestamp,
-        ).toLocaleTimeString()
+    validDate && parsedDate
+      ? parsedDate.toLocaleTimeString()
       : 'Not available';
 
   return (
@@ -1311,6 +1621,53 @@ function AttendanceDetails({
         styles.details
       }
     >
+      {/* Attendance photo */}
+      <View
+        style={
+          styles.photoSection
+        }
+      >
+        <Text
+          style={
+            styles.photoTitle
+          }
+        >
+          Attendance photo
+        </Text>
+
+        <View
+          style={
+            styles.photoContainer
+          }
+        >
+          {attendance.photo_url ? (
+            <Image
+              source={{
+                uri: attendance.photo_url,
+              }}
+              style={
+                styles.photo
+              }
+              resizeMode="cover"
+            />
+          ) : (
+            <View
+              style={
+                styles.noPhoto
+              }
+            >
+              <Text
+                style={
+                  styles.noPhotoText
+                }
+              >
+                No photo
+              </Text>
+            </View>
+          )}
+        </View>
+      </View>
+
       <View
         style={
           styles.detailRow
@@ -1450,32 +1807,6 @@ function AttendanceDetails({
             {
               attendance.rejection_reason
             }
-          </Text>
-        </View>
-      )}
-
-      {(attendance.photo_url ||
-        attendance.photo_path) && (
-        <View
-          style={
-            styles.photoBox
-          }
-        >
-          <Text
-            style={
-              styles.photoTitle
-            }
-          >
-            Attendance photo
-          </Text>
-
-          <Text
-            style={
-              styles.photoPath
-            }
-          >
-            {attendance.photo_url ||
-              attendance.photo_path}
           </Text>
         </View>
       )}
@@ -1625,12 +1956,32 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
+    position: 'relative',
   },
 
   dayNumber: {
     fontSize: 14,
     fontWeight: '600',
     color: '#0f172a',
+  },
+
+  countBadge: {
+    position: 'absolute',
+    top: 3,
+    right: 3,
+    minWidth: 17,
+    height: 17,
+    paddingHorizontal: 3,
+    borderRadius: 9,
+    backgroundColor: '#0f172a',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  countBadgeText: {
+    color: '#ffffff',
+    fontSize: 9,
+    fontWeight: '800',
   },
 
   noAttendance: {
@@ -1678,7 +2029,8 @@ const styles = StyleSheet.create({
 
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.55)',
+    backgroundColor:
+      'rgba(15, 23, 42, 0.55)',
     alignItems: 'center',
     justifyContent: 'center',
     padding: 20,
@@ -1768,6 +2120,31 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 
+  attendanceList: {
+    maxHeight: 530,
+  },
+
+  attendanceListContent: {
+    paddingBottom: 4,
+    gap: 12,
+  },
+
+  recordsHeader: {
+    marginBottom: 2,
+  },
+
+  recordsTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#0f172a',
+  },
+
+  recordsSubtitle: {
+    marginTop: 3,
+    fontSize: 12,
+    color: '#64748b',
+  },
+
   attendanceCard: {
     borderRadius: 12,
     borderWidth: 1,
@@ -1781,9 +2158,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#f0fdf4',
+    backgroundColor: '#f8fafc',
     borderBottomWidth: 1,
-    borderBottomColor: '#dcfce7',
+    borderBottomColor: '#e2e8f0',
+  },
+
+  attendanceCardHeaderLeft: {
+    flex: 1,
+    marginRight: 10,
   },
 
   attendanceCardTitle: {
@@ -1811,8 +2193,86 @@ const styles = StyleSheet.create({
     color: '#166534',
   },
 
+  pendingBadge: {
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 6,
+    backgroundColor: '#fde68a',
+  },
+
+  pendingBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#854d0e',
+  },
+
+  rejectedBadge: {
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 6,
+    backgroundColor: '#fecaca',
+  },
+
+  rejectedBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#991b1b',
+  },
+
+  unknownBadge: {
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 6,
+    backgroundColor: '#e2e8f0',
+  },
+
+  unknownBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#475569',
+  },
+
   details: {
     padding: 16,
+  },
+
+  /*
+   * Photo section matching the visual approach
+   * used by admin/attendance.tsx.
+   */
+  photoSection: {
+    marginBottom: 16,
+  },
+
+  photoTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#334155',
+    marginBottom: 8,
+  },
+
+  photoContainer: {
+    width: '100%',
+    height: 240,
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: '#f1f5f9',
+  },
+
+  photo: {
+    width: '100%',
+    height: '100%',
+  },
+
+  noPhoto: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  noPhotoText: {
+    color: '#64748b',
+    fontSize: 13,
   },
 
   detailRow: {
@@ -1855,25 +2315,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 19,
     color: '#7f1d1d',
-  },
-
-  photoBox: {
-    marginTop: 14,
-    padding: 12,
-    borderRadius: 8,
-    backgroundColor: '#f8fafc',
-  },
-
-  photoTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#334155',
-  },
-
-  photoPath: {
-    marginTop: 5,
-    fontSize: 12,
-    color: '#64748b',
   },
 
   doneButton: {
