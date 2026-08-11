@@ -1,7 +1,194 @@
+import React, {
+  useCallback,
+  useEffect,
+  useState,
+} from 'react';
+import {
+  ActivityIndicator,
+  Image,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
+
 import { ScreenContainer } from '@/src/components/ScreenContainer';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { supabase } from '@/src/lib/supabase';
+
+const ATTENDANCE_BUCKET = 'attendance-photos';
+
+type AttendanceRecord = {
+  id: string;
+  sales_id: string;
+  store_id: string;
+  latitude: number | null;
+  longitude: number | null;
+  gps_accuracy: number | null;
+  distance_meters: number | null;
+  photo_path: string | null;
+  client_captured_at: string | null;
+  created_at: string;
+  status: string;
+  rejection_reason: string | null;
+
+  sales: {
+    id: string;
+    name: string;
+    email: string;
+    sales_code: string;
+  } | null;
+
+  store: {
+    id: string;
+    name: string;
+  } | null;
+
+  photo_url: string | null;
+};
 
 export default function AdminAttendanceScreen() {
+  const [records, setRecords] = useState<AttendanceRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadAttendance = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const {
+        data: { user },
+        error: authError,
+      } = await supabase.auth.getUser();
+
+      if (authError) {
+        throw new Error(
+          `Authentication error: ${authError.message}`
+        );
+      }
+
+      if (!user) {
+        throw new Error('You are not authenticated.');
+      }
+
+      console.log('ADMIN ATTENDANCE USER:', {
+        id: user.id,
+        email: user.email,
+      });
+
+      const { data, error: attendanceError } = await supabase
+        .from('attendance')
+        .select(`
+          id,
+          sales_id,
+          store_id,
+          latitude,
+          longitude,
+          gps_accuracy,
+          distance_meters,
+          photo_path,
+          client_captured_at,
+          created_at,
+          status,
+          rejection_reason,
+
+          sales:sales_id (
+            id,
+            name,
+            email,
+            sales_code
+          ),
+
+          store:store_id (
+            id,
+            name
+          )
+        `)
+        .order('created_at', {
+          ascending: false,
+        });
+
+      if (attendanceError) {
+        console.error(
+          'ADMIN ATTENDANCE DATABASE ERROR:',
+          attendanceError
+        );
+
+        throw new Error(
+          `Could not read attendance: ${attendanceError.message}`
+        );
+      }
+
+      const recordsWithPhotos = await Promise.all(
+        (data ?? []).map(async (record: any) => {
+          let photoUrl: string | null = null;
+
+          if (record.photo_path) {
+            const {
+              data: signedUrl,
+              error: photoError,
+            } = await supabase.storage
+              .from(ATTENDANCE_BUCKET)
+              .createSignedUrl(
+                record.photo_path,
+                60 * 60
+              );
+
+            if (photoError) {
+              console.error(
+                'ATTENDANCE PHOTO ERROR:',
+                {
+                  attendanceId: record.id,
+                  photoPath: record.photo_path,
+                  message: photoError.message,
+                }
+              );
+            } else {
+              photoUrl =
+                signedUrl?.signedUrl ?? null;
+            }
+          }
+
+          return {
+            ...record,
+            photo_url: photoUrl,
+          };
+        })
+      );
+
+      setRecords(recordsWithPhotos);
+    } catch (err) {
+      console.error(
+        'ADMIN ATTENDANCE PAGE ERROR:',
+        err
+      );
+
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Failed to load attendance'
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadAttendance();
+  }, [loadAttendance]);
+
+  const total = records.length;
+
+  const approved = records.filter(
+    (record) =>
+      record.status?.toLowerCase() === 'approved'
+  ).length;
+
+  const rejected = records.filter(
+    (record) =>
+      record.status?.toLowerCase() === 'rejected'
+  ).length;
+
   return (
     <ScreenContainer
       title="Attendance Monitoring"
@@ -14,57 +201,140 @@ export default function AdminAttendanceScreen() {
         {/* Summary */}
         <View style={styles.summaryRow}>
           <View style={styles.summaryCard}>
-            <Text style={styles.summaryNumber}>—</Text>
-            <Text style={styles.summaryLabel}>Total</Text>
+            <Text style={styles.summaryNumber}>
+              {loading ? '—' : total}
+            </Text>
+
+            <Text style={styles.summaryLabel}>
+              Total
+            </Text>
           </View>
 
           <View style={styles.summaryCard}>
-            <Text style={[styles.summaryNumber, styles.approved]}>
-              —
+            <Text
+              style={[
+                styles.summaryNumber,
+                styles.approved,
+              ]}
+            >
+              {loading ? '—' : approved}
             </Text>
-            <Text style={styles.summaryLabel}>Approved</Text>
+
+            <Text style={styles.summaryLabel}>
+              Approved
+            </Text>
           </View>
 
           <View style={styles.summaryCard}>
-            <Text style={[styles.summaryNumber, styles.rejected]}>
-              —
+            <Text
+              style={[
+                styles.summaryNumber,
+                styles.rejected,
+              ]}
+            >
+              {loading ? '—' : rejected}
             </Text>
-            <Text style={styles.summaryLabel}>Rejected</Text>
+
+            <Text style={styles.summaryLabel}>
+              Rejected
+            </Text>
           </View>
         </View>
 
         {/* Filters */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Attendance Records</Text>
+          <Text style={styles.sectionTitle}>
+            Attendance Records
+          </Text>
 
           <View style={styles.filterRow}>
             <View style={styles.filter}>
-              <Text style={styles.filterText}>All Status</Text>
+              <Text style={styles.filterText}>
+                All Status
+              </Text>
             </View>
 
             <View style={styles.filter}>
-              <Text style={styles.filterText}>Today</Text>
+              <Text style={styles.filterText}>
+                Today
+              </Text>
             </View>
           </View>
         </View>
 
+        {/* Loading */}
+        {loading && (
+          <View style={styles.emptyCard}>
+            <ActivityIndicator size="large" />
+
+            <Text style={styles.emptyTitle}>
+              Loading Attendance
+            </Text>
+
+            <Text style={styles.emptyText}>
+              Reading attendance records...
+            </Text>
+          </View>
+        )}
+
+        {/* Error */}
+        {!loading && error && (
+          <View style={styles.emptyCard}>
+            <Text style={styles.emptyIcon}>
+              ⚠️
+            </Text>
+
+            <Text style={styles.emptyTitle}>
+              Unable to load attendance
+            </Text>
+
+            <Text style={styles.emptyText}>
+              {error}
+            </Text>
+          </View>
+        )}
+
         {/* Empty state */}
-        <View style={styles.emptyCard}>
-          <Text style={styles.emptyIcon}>📋</Text>
+        {!loading &&
+          !error &&
+          records.length === 0 && (
+            <View style={styles.emptyCard}>
+              <Text style={styles.emptyIcon}>
+                📋
+              </Text>
 
-          <Text style={styles.emptyTitle}>
-            Attendance Records
-          </Text>
+              <Text style={styles.emptyTitle}>
+                Attendance Records
+              </Text>
 
-          <Text style={styles.emptyText}>
-            Attendance records, verification photos, GPS data,
-            approval status, and rejection reasons will appear here.
-          </Text>
-        </View>
+              <Text style={styles.emptyText}>
+                Attendance records, verification
+                photos, GPS data, approval status,
+                and rejection reasons will appear
+                here.
+              </Text>
+            </View>
+          )}
+
+        {/* Records */}
+        {!loading &&
+          !error &&
+          records.length > 0 && (
+            <View style={styles.recordsContainer}>
+              {records.map((record) => (
+                <AttendanceCard
+                  key={record.id}
+                  record={record}
+                />
+              ))}
+            </View>
+          )}
 
         {/* Information */}
         <View style={styles.infoCard}>
-          <Text style={styles.infoTitle}>Verification Details</Text>
+          <Text style={styles.infoTitle}>
+            Verification Details
+          </Text>
 
           <Text style={styles.infoItem}>
             📍 GPS location verification
@@ -84,6 +354,185 @@ export default function AdminAttendanceScreen() {
         </View>
       </ScrollView>
     </ScreenContainer>
+  );
+}
+
+function AttendanceCard({
+  record,
+}: {
+  record: AttendanceRecord;
+}) {
+  const status =
+    record.status?.toUpperCase() ?? 'UNKNOWN';
+
+  const isApproved = status === 'APPROVED';
+
+  const capturedAt =
+    record.client_captured_at
+      ? new Date(
+          record.client_captured_at
+        ).toLocaleString()
+      : 'Unknown';
+
+  const submittedAt = record.created_at
+    ? new Date(
+        record.created_at
+      ).toLocaleString()
+    : 'Unknown';
+
+  return (
+    <View style={styles.attendanceCard}>
+      <View style={styles.attendanceHeader}>
+        <View style={styles.person}>
+          <Text style={styles.personName}>
+            {record.sales?.name ??
+              'Unknown salesperson'}
+          </Text>
+
+          <Text style={styles.personEmail}>
+            {record.sales?.email ?? '—'}
+          </Text>
+
+          {record.sales?.sales_code ? (
+            <Text style={styles.salesCode}>
+              Sales code:{' '}
+              {record.sales.sales_code}
+            </Text>
+          ) : null}
+        </View>
+
+        <View
+          style={[
+            styles.statusBadge,
+            isApproved
+              ? styles.approvedBadge
+              : styles.rejectedBadge,
+          ]}
+        >
+          <Text
+            style={[
+              styles.statusText,
+              isApproved
+                ? styles.approvedText
+                : styles.rejectedText,
+            ]}
+          >
+            {status}
+          </Text>
+        </View>
+      </View>
+
+      <View style={styles.recordSeparator} />
+
+      <View style={styles.recordContent}>
+        <View style={styles.photoContainer}>
+          {record.photo_url ? (
+            <Image
+              source={{
+                uri: record.photo_url,
+              }}
+              style={styles.photo}
+              resizeMode="cover"
+            />
+          ) : (
+            <View style={styles.noPhoto}>
+              <Text style={styles.noPhotoText}>
+                No photo
+              </Text>
+            </View>
+          )}
+        </View>
+
+        <View style={styles.details}>
+          <Detail
+            label="Store"
+            value={
+              record.store?.name ??
+              'Unknown store'
+            }
+          />
+
+          <Detail
+            label="Captured"
+            value={capturedAt}
+          />
+
+          <Detail
+            label="Submitted"
+            value={submittedAt}
+          />
+
+          <Detail
+            label="Distance"
+            value={
+              record.distance_meters !== null
+                ? `${record.distance_meters.toFixed(
+                    1
+                  )} m`
+                : '—'
+            }
+          />
+
+          <Detail
+            label="GPS accuracy"
+            value={
+              record.gps_accuracy !== null
+                ? `${record.gps_accuracy.toFixed(
+                    1
+                  )} m`
+                : '—'
+            }
+          />
+
+          <Detail
+            label="Latitude"
+            value={
+              record.latitude !== null
+                ? record.latitude.toFixed(6)
+                : '—'
+            }
+          />
+
+          <Detail
+            label="Longitude"
+            value={
+              record.longitude !== null
+                ? record.longitude.toFixed(6)
+                : '—'
+            }
+          />
+
+          {record.rejection_reason ? (
+            <Detail
+              label="Rejection reason"
+              value={
+                record.rejection_reason
+              }
+            />
+          ) : null}
+        </View>
+      </View>
+    </View>
+  );
+}
+
+function Detail({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <View style={styles.detail}>
+      <Text style={styles.detailLabel}>
+        {label}
+      </Text>
+
+      <Text style={styles.detailValue}>
+        {value}
+      </Text>
+    </View>
   );
 }
 
@@ -194,6 +643,7 @@ const styles = StyleSheet.create({
     padding: 18,
     borderWidth: 1,
     borderColor: '#e2e8f0',
+    marginTop: 16,
   },
 
   infoTitle: {
@@ -207,5 +657,128 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#475569',
     marginBottom: 10,
+  },
+
+  recordsContainer: {
+    gap: 16,
+  },
+
+  attendanceCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+
+  attendanceHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+
+  person: {
+    flex: 1,
+  },
+
+  personName: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#111827',
+  },
+
+  personEmail: {
+    marginTop: 3,
+    fontSize: 13,
+    color: '#64748b',
+  },
+
+  salesCode: {
+    marginTop: 3,
+    fontSize: 12,
+    color: '#94a3b8',
+  },
+
+  statusBadge: {
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+
+  approvedBadge: {
+    backgroundColor: '#dcfce7',
+  },
+
+  rejectedBadge: {
+    backgroundColor: '#fee2e2',
+  },
+
+  statusText: {
+    fontSize: 11,
+    fontWeight: '800',
+  },
+
+  approvedText: {
+    color: '#166534',
+  },
+
+  rejectedText: {
+    color: '#991b1b',
+  },
+
+  recordSeparator: {
+    height: 1,
+    backgroundColor: '#e2e8f0',
+    marginVertical: 16,
+  },
+
+  recordContent: {
+    flexDirection: 'row',
+    gap: 18,
+  },
+
+  photoContainer: {
+    width: 280,
+    height: 210,
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: '#f1f5f9',
+  },
+
+  photo: {
+    width: '100%',
+    height: '100%',
+  },
+
+  noPhoto: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  noPhotoText: {
+    color: '#64748b',
+    fontSize: 13,
+  },
+
+  details: {
+    flex: 1,
+    gap: 10,
+  },
+
+  detail: {
+    gap: 2,
+  },
+
+  detailLabel: {
+    fontSize: 11,
+    color: '#94a3b8',
+    fontWeight: '600',
+  },
+
+  detailValue: {
+    fontSize: 13,
+    color: '#334155',
   },
 });

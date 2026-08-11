@@ -1,119 +1,549 @@
+import React, {
+  useCallback,
+  useEffect,
+  useState,
+} from 'react';
+import {
+  ActivityIndicator,
+  Image,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
+
 import { ScreenContainer } from '@/src/components/ScreenContainer';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { supabase } from '@/src/lib/supabase';
 
-const STORES = [
-  {
-    name: 'Store Example',
-    code: 'STORE-001',
-    address: 'Store address',
-    radius: '—',
-    status: 'Active',
-  },
-  {
-    name: 'Store Example',
-    code: 'STORE-002',
-    address: 'Store address',
-    radius: '—',
-    status: 'Active',
-  },
-];
+const ATTENDANCE_BUCKET = 'attendance-photos';
 
-export default function AdminStoresScreen() {
+type AttendanceRecord = {
+  id: string;
+  sales_id: string;
+  store_id: string;
+  latitude: number | null;
+  longitude: number | null;
+  gps_accuracy: number | null;
+  distance_meters: number | null;
+  photo_path: string | null;
+  client_captured_at: string | null;
+  created_at: string;
+  status: string;
+  rejection_reason: string | null;
+
+  sales: {
+    id: string;
+    name: string;
+    email: string;
+    sales_code: string;
+  } | null;
+
+  store: {
+    id: string;
+    name: string;
+  } | null;
+
+  photo_url: string | null;
+};
+
+export default function AdminAttendanceScreen() {
+  const [records, setRecords] = useState<
+    AttendanceRecord[]
+  >([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(
+    null
+  );
+
+  const loadAttendance = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const {
+        data: { user },
+        error: authError,
+      } = await supabase.auth.getUser();
+
+      if (authError) {
+        throw new Error(
+          `Authentication error: ${authError.message}`
+        );
+      }
+
+      if (!user) {
+        throw new Error(
+          'You are not authenticated.'
+        );
+      }
+
+      console.log('ADMIN ATTENDANCE USER:', {
+        id: user.id,
+        email: user.email,
+      });
+
+      const { data, error: attendanceError } =
+        await supabase
+          .from('attendance')
+          .select(`
+            id,
+            sales_id,
+            store_id,
+            latitude,
+            longitude,
+            gps_accuracy,
+            distance_meters,
+            photo_path,
+            client_captured_at,
+            created_at,
+            status,
+            rejection_reason,
+
+            sales:sales_id (
+              id,
+              name,
+              email,
+              sales_code
+            ),
+
+            store:store_id (
+              id,
+              name
+            )
+          `)
+          .order('created_at', {
+            ascending: false,
+          });
+
+      if (attendanceError) {
+        console.error(
+          'ADMIN ATTENDANCE DATABASE ERROR:',
+          {
+            code: attendanceError.code,
+            message: attendanceError.message,
+            details: attendanceError.details,
+            hint: attendanceError.hint,
+          }
+        );
+
+        throw new Error(
+          `Could not read attendance: ${attendanceError.message}`
+        );
+      }
+
+      console.log(
+        'ADMIN ATTENDANCE RECORDS:',
+        data
+      );
+
+      const recordsWithPhotos =
+        await Promise.all(
+          (data ?? []).map(
+            async (record: any) => {
+              let photoUrl: string | null = null;
+
+              if (record.photo_path) {
+                const {
+                  data: signedUrl,
+                  error: photoError,
+                } = await supabase.storage
+                  .from(ATTENDANCE_BUCKET)
+                  .createSignedUrl(
+                    record.photo_path,
+                    60 * 60
+                  );
+
+                if (photoError) {
+                  console.error(
+                    'ATTENDANCE PHOTO ERROR:',
+                    {
+                      attendanceId: record.id,
+                      photoPath:
+                        record.photo_path,
+                      message:
+                        photoError.message,
+                    }
+                  );
+                } else {
+                  photoUrl =
+                    signedUrl?.signedUrl ?? null;
+                }
+              }
+
+              return {
+                ...record,
+                photo_url: photoUrl,
+              };
+            }
+          )
+        );
+
+      setRecords(recordsWithPhotos);
+    } catch (err) {
+      console.error(
+        'ADMIN ATTENDANCE PAGE ERROR:',
+        err
+      );
+
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Failed to load attendance'
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadAttendance();
+  }, [loadAttendance]);
+
+  const total = records.length;
+
+  const approved = records.filter(
+    (record) =>
+      record.status?.toLowerCase() ===
+      'approved'
+  ).length;
+
+  const rejected = records.filter(
+    (record) =>
+      record.status?.toLowerCase() ===
+      'rejected'
+  ).length;
+
   return (
     <ScreenContainer
-      title="Store Management"
-      subtitle="Manage stores, locations and GPS radius"
+      title="Attendance Monitoring"
+      subtitle="Monitor sales attendance and verification"
     >
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.container}
       >
-        {/* Header */}
-        <View style={styles.headerCard}>
-          <View style={styles.headerContent}>
-            <Text style={styles.headerTitle}>Store Management</Text>
+        {/* Summary */}
+        <View style={styles.summaryRow}>
+          <View style={styles.summaryCard}>
+            <Text style={styles.summaryNumber}>
+              {loading ? '—' : total}
+            </Text>
 
-            <Text style={styles.headerText}>
-              Create and manage stores with configurable GPS locations and
-              attendance radius.
+            <Text style={styles.summaryLabel}>
+              Total
             </Text>
           </View>
 
-          <Text style={styles.headerIcon}>🏪</Text>
-        </View>
+          <View style={styles.summaryCard}>
+            <Text
+              style={[
+                styles.summaryNumber,
+                styles.approved,
+              ]}
+            >
+              {loading ? '—' : approved}
+            </Text>
 
-        {/* Stats */}
-        <View style={styles.statsRow}>
-          <View style={styles.statCard}>
-            <Text style={styles.statNumber}>—</Text>
-            <Text style={styles.statLabel}>Total Stores</Text>
+            <Text style={styles.summaryLabel}>
+              Approved
+            </Text>
           </View>
 
-          <View style={styles.statCard}>
-            <Text style={styles.statNumber}>—</Text>
-            <Text style={styles.statLabel}>Active</Text>
-          </View>
+          <View style={styles.summaryCard}>
+            <Text
+              style={[
+                styles.summaryNumber,
+                styles.rejected,
+              ]}
+            >
+              {loading ? '—' : rejected}
+            </Text>
 
-          <View style={styles.statCard}>
-            <Text style={styles.statNumber}>—</Text>
-            <Text style={styles.statLabel}>Inactive</Text>
+            <Text style={styles.summaryLabel}>
+              Rejected
+            </Text>
           </View>
         </View>
 
-        {/* Stores */}
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Registered Stores</Text>
+        {/* Attendance Records */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>
+            Attendance Records
+          </Text>
 
-          <Text style={styles.sectionCount}>— stores</Text>
+          <View style={styles.filterRow}>
+            <View style={styles.filter}>
+              <Text style={styles.filterText}>
+                All Status
+              </Text>
+            </View>
+
+            <View style={styles.filter}>
+              <Text style={styles.filterText}>
+                Today
+              </Text>
+            </View>
+          </View>
         </View>
 
-        {STORES.map((store, index) => (
-          <Pressable
-            key={`${store.code}-${index}`}
-            style={({ pressed }) => [
-              styles.storeCard,
-              pressed && styles.pressed,
-            ]}
-          >
-            <View style={styles.storeIcon}>
-              <Text style={styles.emoji}>🏪</Text>
-            </View>
+        {loading ? (
+          <View style={styles.emptyCard}>
+            <ActivityIndicator size="large" />
 
-            <View style={styles.storeContent}>
-              <Text style={styles.storeName}>{store.name}</Text>
+            <Text style={styles.emptyTitle}>
+              Loading Attendance
+            </Text>
 
-              <Text style={styles.storeCode}>{store.code}</Text>
+            <Text style={styles.emptyText}>
+              Reading attendance records...
+            </Text>
+          </View>
+        ) : error ? (
+          <View style={styles.emptyCard}>
+            <Text style={styles.emptyIcon}>
+              ⚠️
+            </Text>
 
-              <Text style={styles.storeAddress}>{store.address}</Text>
+            <Text style={styles.emptyTitle}>
+              Unable to load attendance
+            </Text>
 
-              <View style={styles.locationRow}>
-                <Text style={styles.locationText}>
-                  📍 GPS radius: {store.radius}m
-                </Text>
-              </View>
-            </View>
+            <Text style={styles.emptyText}>
+              {error}
+            </Text>
+          </View>
+        ) : records.length === 0 ? (
+          <View style={styles.emptyCard}>
+            <Text style={styles.emptyIcon}>
+              📋
+            </Text>
 
-            <View style={styles.rightSide}>
-              <View style={styles.statusBadge}>
-                <Text style={styles.statusText}>{store.status}</Text>
-              </View>
+            <Text style={styles.emptyTitle}>
+              Attendance Records
+            </Text>
 
-              <Text style={styles.arrow}>›</Text>
-            </View>
-          </Pressable>
-        ))}
+            <Text style={styles.emptyText}>
+              No attendance records have been
+              submitted yet.
+            </Text>
+          </View>
+        ) : (
+          <View style={styles.records}>
+            {records.map((record) => (
+              <AttendanceCard
+                key={record.id}
+                record={record}
+              />
+            ))}
+          </View>
+        )}
 
-        {/* Backend information */}
+        {/* Information */}
         <View style={styles.infoCard}>
-          <Text style={styles.infoTitle}>GPS Configuration</Text>
+          <Text style={styles.infoTitle}>
+            Verification Details
+          </Text>
 
-          <Text style={styles.infoText}>
-            Store coordinates and radius_meters are used by the attendance
-            verification flow. The existing backend remains unchanged.
+          <Text style={styles.infoItem}>
+            📍 GPS location verification
+          </Text>
+
+          <Text style={styles.infoItem}>
+            📷 Attendance photo
+          </Text>
+
+          <Text style={styles.infoItem}>
+            ✅ Approval / rejection status
+          </Text>
+
+          <Text style={styles.infoItem}>
+            📝 Rejection reason
           </Text>
         </View>
       </ScrollView>
     </ScreenContainer>
+  );
+}
+
+function AttendanceCard({
+  record,
+}: {
+  record: AttendanceRecord;
+}) {
+  const status =
+    record.status?.toUpperCase() ??
+    'UNKNOWN';
+
+  const isApproved =
+    status === 'APPROVED';
+
+  const capturedAt =
+    record.client_captured_at
+      ? new Date(
+          record.client_captured_at
+        ).toLocaleString()
+      : 'Unknown';
+
+  const submittedAt = record.created_at
+    ? new Date(
+        record.created_at
+      ).toLocaleString()
+    : 'Unknown';
+
+  return (
+    <View style={styles.recordCard}>
+      <View style={styles.recordHeader}>
+        <View style={styles.person}>
+          <Text style={styles.personName}>
+            {record.sales?.name ??
+              'Unknown salesperson'}
+          </Text>
+
+          <Text style={styles.personEmail}>
+            {record.sales?.email ?? '—'}
+          </Text>
+
+          {record.sales?.sales_code ? (
+            <Text style={styles.salesCode}>
+              Sales code:{' '}
+              {record.sales.sales_code}
+            </Text>
+          ) : null}
+        </View>
+
+        <View
+          style={[
+            styles.statusBadge,
+            isApproved
+              ? styles.approvedBadge
+              : styles.rejectedBadge,
+          ]}
+        >
+          <Text
+            style={[
+              styles.statusText,
+              isApproved
+                ? styles.approvedText
+                : styles.rejectedText,
+            ]}
+          >
+            {status}
+          </Text>
+        </View>
+      </View>
+
+      <View style={styles.recordSeparator} />
+
+      <View style={styles.recordBody}>
+        <View style={styles.photoContainer}>
+          {record.photo_url ? (
+            <Image
+              source={{
+                uri: record.photo_url,
+              }}
+              style={styles.photo}
+              resizeMode="cover"
+            />
+          ) : (
+            <View style={styles.noPhoto}>
+              <Text style={styles.noPhotoText}>
+                No photo
+              </Text>
+            </View>
+          )}
+        </View>
+
+        <View style={styles.details}>
+          <Detail
+            label="Store"
+            value={
+              record.store?.name ??
+              'Unknown store'
+            }
+          />
+
+          <Detail
+            label="Captured"
+            value={capturedAt}
+          />
+
+          <Detail
+            label="Submitted"
+            value={submittedAt}
+          />
+
+          <Detail
+            label="Distance"
+            value={
+              record.distance_meters !==
+              null
+                ? `${record.distance_meters.toFixed(
+                    1
+                  )} m`
+                : '—'
+            }
+          />
+
+          <Detail
+            label="GPS accuracy"
+            value={
+              record.gps_accuracy !== null
+                ? `${record.gps_accuracy.toFixed(
+                    1
+                  )} m`
+                : '—'
+            }
+          />
+
+          <Detail
+            label="Latitude"
+            value={
+              record.latitude !== null
+                ? record.latitude.toFixed(6)
+                : '—'
+            }
+          />
+
+          <Detail
+            label="Longitude"
+            value={
+              record.longitude !== null
+                ? record.longitude.toFixed(6)
+                : '—'
+            }
+          />
+
+          {record.rejection_reason ? (
+            <Detail
+              label="Rejection reason"
+              value={
+                record.rejection_reason
+              }
+            />
+          ) : null}
+        </View>
+      </View>
+    </View>
+  );
+}
+
+function Detail({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <View style={styles.detail}>
+      <Text style={styles.detailLabel}>
+        {label}
+      </Text>
+
+      <Text style={styles.detailValue}>
+        {value}
+      </Text>
+    </View>
   );
 }
 
@@ -122,189 +552,244 @@ const styles = StyleSheet.create({
     paddingBottom: 24,
   },
 
-  headerCard: {
-    backgroundColor: '#111827',
-    borderRadius: 18,
-    padding: 20,
-    marginBottom: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-
-  headerContent: {
-    flex: 1,
-  },
-
-  headerTitle: {
-    color: '#ffffff',
-    fontSize: 20,
-    fontWeight: '800',
-    marginBottom: 5,
-  },
-
-  headerText: {
-    color: '#cbd5e1',
-    fontSize: 13,
-    lineHeight: 19,
-  },
-
-  headerIcon: {
-    fontSize: 42,
-    marginLeft: 12,
-  },
-
-  statsRow: {
+  summaryRow: {
     flexDirection: 'row',
     gap: 10,
-    marginBottom: 24,
+    marginBottom: 20,
   },
 
-  statCard: {
+  summaryCard: {
     flex: 1,
     backgroundColor: '#f8fafc',
     borderRadius: 14,
-    padding: 15,
+    padding: 16,
     borderWidth: 1,
     borderColor: '#e2e8f0',
   },
 
-  statNumber: {
-    fontSize: 24,
+  summaryNumber: {
+    fontSize: 26,
     fontWeight: '800',
     color: '#111827',
+    marginBottom: 4,
   },
 
-  statLabel: {
-    fontSize: 11,
+  summaryLabel: {
+    fontSize: 12,
     color: '#64748b',
-    marginTop: 3,
+    fontWeight: '600',
   },
 
-  sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 12,
+  approved: {
+    color: '#16a34a',
+  },
+
+  rejected: {
+    color: '#dc2626',
+  },
+
+  section: {
+    marginBottom: 16,
   },
 
   sectionTitle: {
     fontSize: 18,
-    fontWeight: '800',
+    fontWeight: '700',
     color: '#111827',
+    marginBottom: 12,
   },
 
-  sectionCount: {
-    fontSize: 12,
-    color: '#64748b',
+  filterRow: {
+    flexDirection: 'row',
+    gap: 10,
   },
 
-  storeCard: {
+  filter: {
     backgroundColor: '#ffffff',
-    borderRadius: 15,
-    padding: 14,
-    marginBottom: 10,
     borderWidth: 1,
     borderColor: '#e2e8f0',
-    flexDirection: 'row',
-    alignItems: 'flex-start',
+    borderRadius: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 11,
   },
 
-  pressed: {
-    opacity: 0.7,
-  },
-
-  storeIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 12,
-    backgroundColor: '#f1f5f9',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 14,
-  },
-
-  emoji: {
-    fontSize: 24,
-  },
-
-  storeContent: {
-    flex: 1,
-  },
-
-  storeName: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#111827',
-    marginBottom: 3,
-  },
-
-  storeCode: {
-    fontSize: 12,
+  filterText: {
+    fontSize: 13,
     fontWeight: '600',
     color: '#475569',
-    marginBottom: 3,
   },
 
-  storeAddress: {
-    fontSize: 12,
-    color: '#94a3b8',
-    marginBottom: 7,
-  },
-
-  locationRow: {
-    flexDirection: 'row',
+  emptyCard: {
+    backgroundColor: '#f8fafc',
+    borderRadius: 16,
+    padding: 28,
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    marginBottom: 16,
   },
 
-  locationText: {
-    fontSize: 11,
-    color: '#64748b',
+  emptyIcon: {
+    fontSize: 42,
+    marginBottom: 12,
   },
 
-  rightSide: {
-    alignItems: 'flex-end',
-    marginLeft: 8,
-  },
-
-  statusBadge: {
-    backgroundColor: '#dcfce7',
-    borderRadius: 20,
-    paddingHorizontal: 9,
-    paddingVertical: 4,
-  },
-
-  statusText: {
-    color: '#15803d',
-    fontSize: 10,
+  emptyTitle: {
+    fontSize: 18,
     fontWeight: '700',
+    color: '#111827',
+    marginBottom: 8,
   },
 
-  arrow: {
-    fontSize: 22,
-    color: '#94a3b8',
-    marginTop: 5,
+  emptyText: {
+    fontSize: 13,
+    color: '#64748b',
+    lineHeight: 20,
+    textAlign: 'center',
   },
 
   infoCard: {
-    backgroundColor: '#f8fafc',
+    backgroundColor: '#ffffff',
     borderRadius: 14,
-    padding: 16,
-    marginTop: 8,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    marginTop: 16,
+  },
+
+  infoTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 14,
+  },
+
+  infoItem: {
+    fontSize: 14,
+    color: '#475569',
+    marginBottom: 10,
+  },
+
+  records: {
+    gap: 16,
+  },
+
+  recordCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    padding: 18,
     borderWidth: 1,
     borderColor: '#e2e8f0',
   },
 
-  infoTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#334155',
-    marginBottom: 6,
+  recordHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
   },
 
-  infoText: {
-    fontSize: 12,
+  person: {
+    flex: 1,
+  },
+
+  personName: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#111827',
+  },
+
+  personEmail: {
+    marginTop: 3,
+    fontSize: 13,
     color: '#64748b',
-    lineHeight: 19,
+  },
+
+  salesCode: {
+    marginTop: 3,
+    fontSize: 12,
+    color: '#94a3b8',
+  },
+
+  statusBadge: {
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+
+  approvedBadge: {
+    backgroundColor: '#dcfce7',
+  },
+
+  rejectedBadge: {
+    backgroundColor: '#fee2e2',
+  },
+
+  statusText: {
+    fontSize: 11,
+    fontWeight: '800',
+  },
+
+  approvedText: {
+    color: '#166534',
+  },
+
+  rejectedText: {
+    color: '#991b1b',
+  },
+
+  recordSeparator: {
+    height: 1,
+    backgroundColor: '#e2e8f0',
+    marginVertical: 16,
+  },
+
+  recordBody: {
+    flexDirection: 'row',
+    gap: 18,
+  },
+
+  photoContainer: {
+    width: 280,
+    height: 210,
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: '#f1f5f9',
+  },
+
+  photo: {
+    width: '100%',
+    height: '100%',
+  },
+
+  noPhoto: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  noPhotoText: {
+    color: '#64748b',
+    fontSize: 13,
+  },
+
+  details: {
+    flex: 1,
+    gap: 10,
+  },
+
+  detail: {
+    gap: 2,
+  },
+
+  detailLabel: {
+    fontSize: 11,
+    color: '#94a3b8',
+    fontWeight: '600',
+  },
+
+  detailValue: {
+    fontSize: 13,
+    color: '#334155',
   },
 });

@@ -1,4 +1,5 @@
 import { supabase } from '@/src/lib/supabase';
+import { compressAttendanceImage } from '@/src/services/imageCompressionService';
 import type {
   Attendance,
   SubmitAttendancePayload,
@@ -7,126 +8,391 @@ import type {
 
 const ATTENDANCE_PHOTOS_BUCKET = 'attendance-photos';
 
-function generateUuid(): string {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
-    const v = c === 'x' ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
-}
-
+/**
+ * Build a unique Storage path for an attendance photo.
+ *
+ * We intentionally do not use an attendance ID here because
+ * the database generates the actual attendance ID.
+ */
 function buildPhotoPath(
   salesId: string,
-  storeId: string,
-  attendanceId: string
+  storeId: string
 ): string {
   const timestamp = Date.now();
-  return `${salesId}/${storeId}/${attendanceId}-${timestamp}.jpg`;
+
+  return `${salesId}/${storeId}/${timestamp}.jpg`;
 }
 
+/**
+ * Compress and upload an attendance photo.
+ */
 async function uploadAttendancePhoto(
   salesId: string,
   storeId: string,
-  attendanceId: string,
   photoUri: string
 ): Promise<string> {
-  const photoPath = buildPhotoPath(salesId, storeId, attendanceId);
+  if (!photoUri) {
+    throw new Error('Attendance photo is required');
+  }
 
-  const response = await fetch(photoUri);
+  console.log('Compressing attendance image...');
+
+  const compressedImage = await compressAttendanceImage(
+    photoUri
+  );
+
+  console.log('Attendance image compressed:', {
+    uri: compressedImage.uri,
+    width: compressedImage.width,
+    height: compressedImage.height,
+  });
+
+  const response = await fetch(compressedImage.uri);
+
+  if (!response.ok) {
+    throw new Error(
+      `Could not read compressed attendance image: ${response.status}`
+    );
+  }
+
   const blob = await response.blob();
 
-  const { error } = await supabase.storage
-    .from(ATTENDANCE_PHOTOS_BUCKET)
-    .upload(photoPath, blob, {
-      contentType: 'image/jpeg',
-      upsert: false,
-    });
+  console.log('Compressed image blob:', {
+    type: blob.type,
+    size: blob.size,
+  });
 
-  if (error) {
-    throw new Error(`Photo upload failed: ${error.message}`);
+  const photoPath = buildPhotoPath(
+    salesId,
+    storeId
+  );
+
+  console.log('Uploading attendance photo:', {
+    bucket: ATTENDANCE_PHOTOS_BUCKET,
+    path: photoPath,
+  });
+
+  const { error: uploadError } =
+    await supabase.storage
+      .from(ATTENDANCE_PHOTOS_BUCKET)
+      .upload(photoPath, blob, {
+        contentType: 'image/jpeg',
+        upsert: false,
+      });
+
+  if (uploadError) {
+    console.error(
+      'ATTENDANCE PHOTO UPLOAD ERROR:',
+      uploadError
+    );
+
+    throw new Error(
+      `Photo upload failed: ${uploadError.message}`
+    );
   }
+
+  console.log(
+    'Attendance photo uploaded successfully:',
+    photoPath
+  );
 
   return photoPath;
 }
 
 /**
- * Submits attendance evidence to the backend for server-side validation.
- * The mobile app never decides final approval status.
+ * Submit an attendance record.
+ *
+ * Flow:
+ *
+ * 1. Get authenticated Supabase user
+ * 2. Compress the captured image
+ * 3. Upload compressed image to Storage
+ * 4. Call submit_attendance RPC
+ * 5. Remove uploaded photo if the RPC fails
  */
 export async function submitAttendance(
   payload: SubmitAttendancePayload
 ): Promise<SubmitAttendanceResult> {
+  if (!payload.storeId) {
+    throw new Error('Store is required');
+  }
+
+  if (!payload.photoUri) {
+    throw new Error('Attendance photo is required');
+  }
+
+  if (
+    typeof payload.latitude !== 'number' ||
+    typeof payload.longitude !== 'number'
+  ) {
+    throw new Error('Valid GPS coordinates are required');
+  }
+
+  if (
+    typeof payload.gpsAccuracy !== 'number' ||
+    !Number.isFinite(payload.gpsAccuracy)
+  ) {
+    throw new Error('Valid GPS accuracy is required');
+  }
+
+  if (!payload.clientCapturedAt) {
+    throw new Error(
+      'Client capture timestamp is required'
+    );
+  }
+
+  /*
+   * Get the authenticated Supabase user.
+   *
+   * DO NOT accept salesId/userId from the UI.
+   * The authenticated user is the source of truth.
+   */
   const {
     data: { user },
+    error: userError,
   } = await supabase.auth.getUser();
+
+  console.log('AUTH USER:', {
+    id: user?.id,
+    email: user?.email,
+  });
+
+  if (userError) {
+    console.error(
+      'AUTH USER ERROR:',
+      userError
+    );
+
+    throw new Error(
+      `Authentication check failed: ${userError.message}`
+    );
+  }
 
   if (!user) {
     throw new Error('Not authenticated');
   }
 
-  const tempAttendanceId = generateUuid();
+  console.log('Submitting attendance:', {
+    userId: user.id,
+    email: user.email,
+    storeId: payload.storeId,
+    latitude: payload.latitude,
+    longitude: payload.longitude,
+    gpsAccuracy: payload.gpsAccuracy,
+    clientCapturedAt: payload.clientCapturedAt,
+  });
+
+  /*
+   * Upload compressed image first.
+   */
   const photoPath = await uploadAttendancePhoto(
     user.id,
     payload.storeId,
-    tempAttendanceId,
     payload.photoUri
   );
 
-  const { data, error } = await supabase.rpc('submit_attendance', {
+  console.log('Calling submit_attendance RPC:', {
     p_store_id: payload.storeId,
     p_latitude: payload.latitude,
     p_longitude: payload.longitude,
     p_gps_accuracy: payload.gpsAccuracy,
-    p_client_captured_at: payload.clientCapturedAt,
+    p_client_captured_at:
+      payload.clientCapturedAt,
     p_photo_path: photoPath,
   });
 
+  /*
+   * The database function gets auth.uid() itself.
+   *
+   * We intentionally do NOT send user.id as a parameter.
+   */
+  const { data, error } = await supabase.rpc(
+    'submit_attendance',
+    {
+      p_store_id: payload.storeId,
+      p_latitude: payload.latitude,
+      p_longitude: payload.longitude,
+      p_gps_accuracy: payload.gpsAccuracy,
+      p_client_captured_at:
+        payload.clientCapturedAt,
+      p_photo_path: photoPath,
+    }
+  );
+
   if (error) {
-    throw new Error(error.message);
+    console.error(
+      'SUBMIT ATTENDANCE RPC ERROR:',
+      {
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+      }
+    );
+
+    /*
+     * The image was uploaded but the attendance
+     * record failed. Remove the orphaned image.
+     */
+    console.log(
+      'Removing orphaned attendance photo:',
+      photoPath
+    );
+
+    const {
+      error: cleanupError,
+    } = await supabase.storage
+      .from(ATTENDANCE_PHOTOS_BUCKET)
+      .remove([photoPath]);
+
+    if (cleanupError) {
+      console.error(
+        'ATTENDANCE PHOTO CLEANUP ERROR:',
+        cleanupError
+      );
+    }
+
+    throw new Error(
+      [
+        `Attendance submission failed.`,
+        `Code: ${error.code ?? 'unknown'}`,
+        `Message: ${error.message}`,
+        error.details
+          ? `Details: ${error.details}`
+          : '',
+        error.hint
+          ? `Hint: ${error.hint}`
+          : '',
+      ]
+        .filter(Boolean)
+        .join('\n')
+    );
   }
 
-  const result = data?.[0];
+  console.log(
+    'submit_attendance RPC response:',
+    data
+  );
+
+  /*
+   * The RPC returns a row containing the result.
+   */
+  const result = Array.isArray(data)
+    ? data[0]
+    : data;
+
   if (!result) {
-    throw new Error('No attendance result returned from server');
+    console.error(
+      'submit_attendance returned no result'
+    );
+
+    /*
+     * Clean up the photo because the database
+     * didn't give us a successful attendance result.
+     */
+    await supabase.storage
+      .from(ATTENDANCE_PHOTOS_BUCKET)
+      .remove([photoPath]);
+
+    throw new Error(
+      'No attendance result returned from server'
+    );
   }
+
+  console.log(
+    'Attendance submitted successfully:',
+    result
+  );
 
   return {
     attendanceId: result.attendance_id,
     status: result.status,
     distanceMeters: result.distance_meters,
-    rejectionReason: result.rejection_reason,
+    rejectionReason:
+      result.rejection_reason,
   };
 }
 
+/**
+ * Get the authenticated user's attendance history.
+ */
 export async function getMyAttendanceHistory(
   limit = 20
 ): Promise<Attendance[]> {
   const {
     data: { user },
+    error: userError,
   } = await supabase.auth.getUser();
 
+  if (userError) {
+    throw new Error(
+      `Authentication check failed: ${userError.message}`
+    );
+  }
+
   if (!user) {
-    return [];
+    throw new Error('Not authenticated');
   }
 
   const { data, error } = await supabase
     .from('attendance')
     .select('*')
     .eq('sales_id', user.id)
-    .order('created_at', { ascending: false })
+    .order('created_at', {
+      ascending: false,
+    })
     .limit(limit);
 
   if (error) {
+    console.error(
+      'GET ATTENDANCE HISTORY ERROR:',
+      {
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+      }
+    );
+
     throw new Error(error.message);
   }
 
   return data ?? [];
 }
 
-export function getAttendancePhotoUrl(photoPath: string): string {
-  const { data } = supabase.storage
-    .from(ATTENDANCE_PHOTOS_BUCKET)
-    .getPublicUrl(photoPath);
+/**
+ * Create a temporary signed URL for a private
+ * attendance photo.
+ */
+export async function getAttendancePhotoUrl(
+  photoPath: string,
+  expiresIn = 60 * 10
+): Promise<string> {
+  if (!photoPath) {
+    throw new Error('Photo path is required');
+  }
 
-  return data.publicUrl;
+  const { data, error } =
+    await supabase.storage
+      .from(ATTENDANCE_PHOTOS_BUCKET)
+      .createSignedUrl(
+        photoPath,
+        expiresIn
+      );
+
+  if (error) {
+    console.error(
+      'GET ATTENDANCE PHOTO URL ERROR:',
+      {
+        code: error.name,
+        message: error.message,
+      }
+    );
+
+    throw new Error(
+      `Could not create attendance photo URL: ${error.message}`
+    );
+  }
+
+  return data.signedUrl;
 }
