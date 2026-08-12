@@ -1,4 +1,8 @@
-import type { Store, SubmitAttendanceResult } from '@/src/types';
+import type {
+  RequestSpinResult,
+  Store,
+  SubmitAttendanceResult,
+} from '@/src/types';
 import { createContext, useContext, useState, type ReactNode } from 'react';
 
 interface AttendanceFlowContextValue {
@@ -8,6 +12,8 @@ interface AttendanceFlowContextValue {
   setPhotoUri: (uri: string | null) => void;
   lastSubmission: SubmitAttendanceResult | null;
   setLastSubmission: (result: SubmitAttendanceResult | null) => void;
+  lastSpin: RequestSpinResult | null;
+  setLastSpin: (result: RequestSpinResult | null) => void;
   resetFlow: () => void;
 }
 
@@ -20,11 +26,13 @@ export function AttendanceFlowProvider({ children }: { children: ReactNode }) {
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [lastSubmission, setLastSubmission] =
     useState<SubmitAttendanceResult | null>(null);
+  const [lastSpin, setLastSpin] = useState<RequestSpinResult | null>(null);
 
   const resetFlow = () => {
     setSelectedStore(null);
     setPhotoUri(null);
     setLastSubmission(null);
+    setLastSpin(null);
   };
 
   return (
@@ -36,6 +44,8 @@ export function AttendanceFlowProvider({ children }: { children: ReactNode }) {
         setPhotoUri,
         lastSubmission,
         setLastSubmission,
+        lastSpin,
+        setLastSpin,
         resetFlow,
       }}
     >

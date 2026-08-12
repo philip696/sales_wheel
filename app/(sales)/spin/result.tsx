@@ -1,7 +1,7 @@
-import { StyleSheet, Text, View } from 'react-native';
-import { router } from 'expo-router';
-import { ScreenContainer } from '@/src/components/ScreenContainer';
 import { PrimaryButton } from '@/src/components/PrimaryButton';
+import { ScreenContainer } from '@/src/components/ScreenContainer';
+import { router } from 'expo-router';
+import { StyleSheet, Text, View } from 'react-native';
 
 export default function SpinResultScreen() {
   return (

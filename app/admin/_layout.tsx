@@ -21,8 +21,13 @@ export default function AdminLayout() {
       />
 
       <Stack.Screen
-        name="spins"
+        name="spins/index"
         options={{ title: 'Spin Activity' }}
+      />
+
+      <Stack.Screen
+        name="spins/[storeId]"
+        options={{ title: 'Store Spin History' }}
       />
 
       <Stack.Screen
