@@ -1,76 +1,24 @@
 import { router } from 'expo-router';
-import { useEffect } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { PrimaryButton } from '@/src/components/PrimaryButton';
 import { ScreenContainer } from '@/src/components/ScreenContainer';
-
 import { useAttendanceFlow } from '@/src/features/attendance/AttendanceFlowContext';
 
 export default function AttendanceResultScreen() {
   const {
     lastSubmission,
     selectedStore,
-    setApprovedAttendance,
-    clearApprovedAttendance,
+    setOrderPlaced,
     resetFlow,
   } = useAttendanceFlow();
 
-  const isApproved =
-    lastSubmission?.status === 'approved';
-
-  const isPending =
-    lastSubmission?.status === 'pending';
-
-  const isRejected =
-    lastSubmission?.status === 'rejected';
-
   /*
-   * IMPORTANT:
-   *
-   * Do NOT call setApprovedAttendance() directly
-   * while rendering the component.
-   *
-   * React considers that a state update to another
-   * component while AttendanceResultScreen is rendering.
-   *
-   * useEffect runs after rendering, which fixes:
-   *
-   * "Cannot update a component while rendering a
-   * different component"
+   * =========================================================
+   * NO ATTENDANCE FOUND
+   * =========================================================
    */
-  useEffect(() => {
-    if (
-      isApproved &&
-      selectedStore &&
-      lastSubmission?.attendanceId
-    ) {
-      setApprovedAttendance(
-        selectedStore.id,
-        lastSubmission.attendanceId
-      );
 
-      return;
-    }
-
-    /*
-     * If attendance isn't approved, make sure
-     * an old approved attendance isn't left active.
-     */
-    if (!isApproved) {
-      clearApprovedAttendance();
-    }
-  }, [
-    isApproved,
-    selectedStore?.id,
-    lastSubmission?.attendanceId,
-    setApprovedAttendance,
-    clearApprovedAttendance,
-  ]);
-
-  /*
-   * No attendance submission.
-   */
   if (!lastSubmission) {
     return (
       <ScreenContainer
@@ -87,8 +35,8 @@ export default function AttendanceResultScreen() {
           </Text>
 
           <Text style={styles.text}>
-            There's no attendance submission to show.
-            Start a new attendance check-in from the
+            There is no attendance submission to show.
+            Please start a new attendance from the
             home screen.
           </Text>
         </View>
@@ -97,7 +45,10 @@ export default function AttendanceResultScreen() {
           title="START ATTENDANCE"
           onPress={() => {
             resetFlow();
-            router.replace('/(sales)/stores');
+
+            router.replace(
+              '/(sales)/stores'
+            );
           }}
           style={styles.button}
         />
@@ -107,57 +58,109 @@ export default function AttendanceResultScreen() {
           variant="secondary"
           onPress={() => {
             resetFlow();
-            router.replace('/(sales)');
+
+            router.replace(
+              '/(sales)'
+            );
           }}
         />
       </ScreenContainer>
     );
   }
 
+  /*
+   * =========================================================
+   * ORDER YES
+   * =========================================================
+   *
+   * IMPORTANT:
+   *
+   * We DO NOT reset the flow here.
+   *
+   * The Spin screen needs:
+   *
+   * - selectedStore
+   * - lastSubmission
+   * - orderPlaced = true
+   *
+   */
+
+  const handleOrderYes = () => {
+    setOrderPlaced(true);
+
+    router.push(
+      '/(sales)/spin'
+    );
+  };
+
+  /*
+   * =========================================================
+   * ORDER NO
+   * =========================================================
+   *
+   * IMPORTANT:
+   *
+   * We DO NOT call resetFlow().
+   *
+   * resetFlow() would remove:
+   *
+   * - lastSubmission
+   * - selectedStore
+   *
+   * We want Home to show:
+   *
+   * ORDER: NO
+   *
+   * after returning.
+   */
+
+  const handleOrderNo = () => {
+    setOrderPlaced(false);
+
+    router.replace(
+      '/(sales)'
+    );
+  };
+
   return (
     <ScreenContainer
-      title="Attendance Result"
-      subtitle={selectedStore?.name ?? 'Attendance'}
+      title="Attendance Complete"
+      subtitle={
+        selectedStore?.name ??
+        'Store Visit'
+      }
     >
       {/* ================================================= */}
-      {/* RESULT */}
+      {/* ATTENDANCE SUCCESS */}
       {/* ================================================= */}
 
-      <View
-        style={[
-          styles.resultBox,
-          isApproved
-            ? styles.resultApproved
-            : isPending
-              ? styles.resultPending
-              : styles.resultRejected,
-        ]}
-      >
-        <Text style={styles.statusIcon}>
-          {isApproved
-            ? '✓'
-            : isPending
-              ? '⏳'
-              : '✕'}
+      <View style={styles.successBox}>
+        <View style={styles.successIconContainer}>
+          <Text style={styles.successIcon}>
+            ✓
+          </Text>
+        </View>
+
+        <Text style={styles.successTitle}>
+          Attendance Submitted
         </Text>
 
-        <Text style={styles.statusText}>
-          {isApproved
-            ? 'Attendance Approved'
-            : isPending
-              ? 'Pending Review'
-              : 'Attendance Rejected'}
+        <Text style={styles.successText}>
+          Your store attendance has been
+          successfully recorded.
         </Text>
 
+        {/* ================================================= */}
         {/* STORE */}
+        {/* ================================================= */}
 
         {selectedStore ? (
-          <>
+          <View style={styles.storeInfo}>
             <Text style={styles.label}>
               STORE
             </Text>
 
-            <Text style={styles.value}>
+            <Text style={styles.storeName}>
               {selectedStore.name}
             </Text>
 
@@ -166,360 +169,377 @@ export default function AttendanceResultScreen() {
                 {selectedStore.store_code}
               </Text>
             ) : null}
-          </>
+          </View>
         ) : null}
 
-        {/* DISTANCE */}
+        {/* ================================================= */}
+        {/* GPS DISTANCE */}
+        {/* ================================================= */}
 
-        <Text style={styles.label}>
-          DISTANCE FROM STORE
+        <View style={styles.distanceInfo}>
+          <Text style={styles.label}>
+            GPS DISTANCE
+          </Text>
+
+          <Text style={styles.distanceValue}>
+            {typeof lastSubmission.distanceMeters ===
+            'number'
+              ? `${lastSubmission.distanceMeters.toFixed(
+                  1
+                )}m`
+              : 'Verified'}
+          </Text>
+        </View>
+      </View>
+
+      {/* ================================================= */}
+      {/* ORDER QUESTION */}
+      {/* ================================================= */}
+
+      <View style={styles.orderQuestion}>
+        <View style={styles.questionIcon}>
+          <Text style={styles.questionEmoji}>
+            🛒
+          </Text>
+        </View>
+
+        <Text style={styles.questionTitle}>
+          Did you place an order?
         </Text>
 
-        <Text style={styles.value}>
-          {typeof lastSubmission.distanceMeters ===
-          'number'
-            ? `${lastSubmission.distanceMeters.toFixed(
-                1
-              )}m`
-            : '-'}
-        </Text>
-
-        {/* REJECTION REASON */}
-
-        {lastSubmission.rejectionReason ? (
-          <>
-            <Text style={styles.label}>
-              REASON
-            </Text>
-
-            <Text style={styles.value}>
-              {lastSubmission.rejectionReason}
-            </Text>
-          </>
-        ) : null}
-
-        {/* FOOTNOTE */}
-
-        <Text style={styles.footnote}>
-          {isApproved
-            ? 'Attendance approved. This store is now unlocked for the Spin Wheel.'
-            : isPending
-              ? 'Your attendance is awaiting review. The Spin Wheel will remain locked until an admin approves it.'
-              : 'This attendance was not approved. Please complete attendance again.'}
+        <Text style={styles.questionText}>
+          Tell us whether the store placed an
+          order during this visit.
         </Text>
       </View>
 
       {/* ================================================= */}
-      {/* APPROVED */}
+      {/* YES — ORDER PLACED */}
       {/* ================================================= */}
 
-      {isApproved && selectedStore ? (
-        <View style={styles.unlockedBox}>
-          <Text style={styles.unlockedIcon}>
-            🎡
-          </Text>
+      <View style={styles.optionCard}>
+        <View style={styles.optionContent}>
+          <View
+            style={[
+              styles.optionIcon,
+              styles.yesIcon,
+            ]}
+          >
+            <Text style={styles.yesIconText}>
+              ✓
+            </Text>
+          </View>
 
-          <View style={styles.unlockedContent}>
-            <Text style={styles.unlockedTitle}>
-              Spin Wheel Unlocked
+          <View style={styles.optionTextContainer}>
+            <Text style={styles.optionTitle}>
+              YES — ORDER PLACED
             </Text>
 
-            <Text style={styles.unlockedText}>
-              You can now spin the reward wheel for{' '}
-              <Text style={styles.unlockedStore}>
-                {selectedStore.name}
-              </Text>
-              .
+            <Text style={styles.optionDescription}>
+              The store placed an order. Continue
+              to the Spin Wheel and claim your
+              reward.
             </Text>
           </View>
         </View>
-      ) : null}
 
-      {/* ================================================= */}
-      {/* APPROVED → SPIN */}
-      {/* ================================================= */}
-
-      {isApproved ? (
         <PrimaryButton
-          title="SPIN FOR THIS STORE"
-          onPress={() =>
-            router.push('/(sales)/spin')
-          }
-          style={styles.button}
+          title="YES — GO TO SPIN"
+          onPress={handleOrderYes}
+          style={styles.yesButton}
         />
-      ) : null}
+      </View>
 
       {/* ================================================= */}
-      {/* PENDING */}
+      {/* NO — NO ORDER */}
       {/* ================================================= */}
 
-      {isPending ? (
-        <View style={styles.pendingBox}>
-          <Text style={styles.pendingIcon}>
-            ⏳
-          </Text>
+      <View style={styles.optionCard}>
+        <View style={styles.optionContent}>
+          <View
+            style={[
+              styles.optionIcon,
+              styles.noIcon,
+            ]}
+          >
+            <Text style={styles.noIconText}>
+              —
+            </Text>
+          </View>
 
-          <View style={styles.pendingContent}>
-            <Text style={styles.pendingTitle}>
-              Waiting for Admin Approval
+          <View style={styles.optionTextContainer}>
+            <Text style={styles.optionTitle}>
+              NO — NO ORDER
             </Text>
 
-            <Text style={styles.pendingText}>
-              Your attendance has been submitted
-              successfully. An admin needs to review
-              and approve it before you can spin the
-              wheel.
+            <Text style={styles.optionDescription}>
+              No order was placed. Finish this visit
+              and return to the home screen.
             </Text>
           </View>
         </View>
-      ) : null}
 
-      {/* ================================================= */}
-      {/* REJECTED */}
-      {/* ================================================= */}
-
-      {isRejected ? (
-        <View style={styles.rejectedBox}>
-          <Text style={styles.rejectedIcon}>
-            ⚠️
-          </Text>
-
-          <View style={styles.rejectedContent}>
-            <Text style={styles.rejectedTitle}>
-              Attendance Rejected
-            </Text>
-
-            <Text style={styles.rejectedText}>
-              Please complete attendance again. You
-              will need a new approved attendance before
-              you can use the Spin Wheel.
-            </Text>
-          </View>
-        </View>
-      ) : null}
-
-      {/* ================================================= */}
-      {/* NEW ATTENDANCE */}
-      {/* ================================================= */}
-
-      {!isApproved ? (
         <PrimaryButton
-          title="START NEW ATTENDANCE"
-          onPress={() => {
-            clearApprovedAttendance();
-
-            router.replace(
-              '/(sales)/stores'
-            );
-          }}
-          style={styles.button}
+          title="NO — FINISH VISIT"
+          variant="secondary"
+          onPress={handleOrderNo}
+          style={styles.noButton}
         />
-      ) : null}
+      </View>
 
       {/* ================================================= */}
-      {/* HOME */}
+      {/* ATTENDANCE RECORD */}
       {/* ================================================= */}
 
-      <PrimaryButton
-        title="BACK TO HOME"
-        variant="secondary"
-        onPress={() => {
-          router.replace('/(sales)');
-        }}
-      />
+      <View style={styles.recordInfo}>
+        <Text style={styles.recordLabel}>
+          ATTENDANCE RECORDED
+        </Text>
+
+        <Text style={styles.recordId}>
+          {lastSubmission.attendanceId}
+        </Text>
+      </View>
     </ScreenContainer>
   );
 }
 
 const styles = StyleSheet.create({
-  /*
-   * RESULT
-   */
+  /* =========================================================
+   * SUCCESS
+   * ========================================================= */
 
-  resultBox: {
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 16,
-    borderWidth: 1,
-  },
-
-  resultApproved: {
+  successBox: {
     backgroundColor: '#f0fdf4',
+    borderWidth: 1,
     borderColor: '#bbf7d0',
+    borderRadius: 18,
+    padding: 20,
+    marginBottom: 18,
+    alignItems: 'center',
   },
 
-  resultPending: {
-    backgroundColor: '#fffbeb',
-    borderColor: '#fde68a',
+  successIconContainer: {
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    backgroundColor: '#dcfce7',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
   },
 
-  resultRejected: {
-    backgroundColor: '#fef2f2',
-    borderColor: '#fecaca',
-  },
-
-  statusIcon: {
-    fontSize: 34,
+  successIcon: {
+    fontSize: 32,
     fontWeight: '900',
-    marginBottom: 6,
-    color: '#111827',
+    color: '#16a34a',
   },
 
-  statusText: {
+  successTitle: {
     fontSize: 21,
     fontWeight: '900',
-    color: '#111827',
-    marginBottom: 14,
+    color: '#166534',
+    marginBottom: 6,
+    textAlign: 'center',
+  },
+
+  successText: {
+    fontSize: 12,
+    color: '#64748b',
+    lineHeight: 18,
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+
+  /* =========================================================
+   * STORE
+   * ========================================================= */
+
+  storeInfo: {
+    width: '100%',
+    alignItems: 'center',
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#bbf7d0',
   },
 
   label: {
-    fontSize: 11,
-    fontWeight: '800',
+    fontSize: 9,
+    fontWeight: '900',
     color: '#64748b',
-    marginTop: 10,
-    marginBottom: 3,
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
+    letterSpacing: 0.8,
+    marginBottom: 4,
   },
 
-  value: {
+  storeName: {
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: '900',
     color: '#111827',
+    textAlign: 'center',
   },
 
   storeCode: {
-    fontSize: 12,
+    fontSize: 11,
+    fontWeight: '700',
     color: '#64748b',
     marginTop: 3,
   },
 
-  footnote: {
-    marginTop: 16,
-    fontSize: 13,
-    color: '#64748b',
-    lineHeight: 19,
-  },
-
-  /*
-   * APPROVED
-   */
-
-  unlockedBox: {
-    flexDirection: 'row',
+  distanceInfo: {
+    marginTop: 12,
     alignItems: 'center',
-    backgroundColor: '#eff6ff',
-    borderWidth: 1,
-    borderColor: '#bfdbfe',
-    borderRadius: 14,
-    padding: 14,
-    marginBottom: 16,
   },
 
-  unlockedIcon: {
-    fontSize: 28,
-    marginRight: 12,
-  },
-
-  unlockedContent: {
-    flex: 1,
-  },
-
-  unlockedTitle: {
+  distanceValue: {
     fontSize: 14,
-    fontWeight: '900',
-    color: '#1e40af',
-    marginBottom: 3,
-  },
-
-  unlockedText: {
-    fontSize: 12,
-    color: '#475569',
-    lineHeight: 17,
-  },
-
-  unlockedStore: {
     fontWeight: '800',
-    color: '#1e40af',
+    color: '#15803d',
   },
 
-  /*
-   * PENDING
-   */
+  /* =========================================================
+   * ORDER QUESTION
+   * ========================================================= */
 
-  pendingBox: {
+  orderQuestion: {
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    marginBottom: 18,
+  },
+
+  questionIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: '#eff6ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 10,
+  },
+
+  questionEmoji: {
+    fontSize: 25,
+  },
+
+  questionTitle: {
+    fontSize: 20,
+    fontWeight: '900',
+    color: '#111827',
+    textAlign: 'center',
+    marginBottom: 6,
+  },
+
+  questionText: {
+    fontSize: 12,
+    color: '#64748b',
+    lineHeight: 18,
+    textAlign: 'center',
+  },
+
+  /* =========================================================
+   * OPTION CARDS
+   * ========================================================= */
+
+  optionCard: {
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 17,
+    padding: 15,
+    marginBottom: 12,
+  },
+
+  optionContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#fffbeb',
-    borderWidth: 1,
-    borderColor: '#fde68a',
-    borderRadius: 14,
-    padding: 14,
-    marginBottom: 16,
+    marginBottom: 13,
   },
 
-  pendingIcon: {
-    fontSize: 28,
-    marginRight: 12,
+  optionIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 11,
   },
 
-  pendingContent: {
+  yesIcon: {
+    backgroundColor: '#dcfce7',
+  },
+
+  noIcon: {
+    backgroundColor: '#f1f5f9',
+  },
+
+  yesIconText: {
+    fontSize: 23,
+    fontWeight: '900',
+    color: '#16a34a',
+  },
+
+  noIconText: {
+    fontSize: 23,
+    fontWeight: '900',
+    color: '#64748b',
+  },
+
+  optionTextContainer: {
     flex: 1,
   },
 
-  pendingTitle: {
-    fontSize: 14,
+  optionTitle: {
+    fontSize: 13,
     fontWeight: '900',
-    color: '#92400e',
+    color: '#111827',
     marginBottom: 3,
   },
 
-  pendingText: {
-    fontSize: 12,
-    color: '#78350f',
-    lineHeight: 17,
+  optionDescription: {
+    fontSize: 10,
+    color: '#64748b',
+    lineHeight: 15,
   },
 
-  /*
-   * REJECTED
-   */
+  /* =========================================================
+   * BUTTONS
+   * ========================================================= */
 
-  rejectedBox: {
-    flexDirection: 'row',
+  yesButton: {
+    marginTop: 0,
+  },
+
+  noButton: {
+    marginTop: 0,
+  },
+
+  /* =========================================================
+   * RECORD
+   * ========================================================= */
+
+  recordInfo: {
     alignItems: 'center',
-    backgroundColor: '#fef2f2',
-    borderWidth: 1,
-    borderColor: '#fecaca',
-    borderRadius: 14,
-    padding: 14,
-    marginBottom: 16,
+    marginTop: 4,
+    marginBottom: 12,
+    paddingHorizontal: 20,
   },
 
-  rejectedIcon: {
-    fontSize: 26,
-    marginRight: 12,
-  },
-
-  rejectedContent: {
-    flex: 1,
-  },
-
-  rejectedTitle: {
-    fontSize: 14,
+  recordLabel: {
+    fontSize: 8,
     fontWeight: '900',
-    color: '#991b1b',
+    color: '#cbd5e1',
+    letterSpacing: 0.8,
     marginBottom: 3,
   },
 
-  rejectedText: {
-    fontSize: 12,
-    color: '#7f1d1d',
-    lineHeight: 17,
+  recordId: {
+    fontSize: 8,
+    color: '#cbd5e1',
+    textAlign: 'center',
   },
 
-  /*
+  /* =========================================================
    * EMPTY
-   */
+   * ========================================================= */
 
   placeholder: {
     alignItems: 'center',
@@ -542,17 +562,19 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     color: '#111827',
     marginBottom: 8,
+    textAlign: 'center',
   },
 
   text: {
     color: '#64748b',
     lineHeight: 22,
     textAlign: 'center',
+    fontSize: 12,
   },
 
-  /*
-   * BUTTON
-   */
+  /* =========================================================
+   * GENERAL
+   * ========================================================= */
 
   button: {
     marginBottom: 12,

@@ -12,6 +12,7 @@ export default function SalesHomeScreen() {
   const {
     selectedStore,
     lastSubmission,
+    orderPlaced,
     spinCompleted,
   } = useAttendanceFlow();
 
@@ -26,7 +27,9 @@ export default function SalesHomeScreen() {
 
       <View style={styles.welcomeCard}>
         <View style={styles.welcomeIcon}>
-          <Text style={styles.welcomeEmoji}>👋</Text>
+          <Text style={styles.welcomeEmoji}>
+            👋
+          </Text>
         </View>
 
         <View style={styles.welcomeContent}>
@@ -35,14 +38,14 @@ export default function SalesHomeScreen() {
           </Text>
 
           <Text style={styles.welcomeText}>
-            Complete your store attendance to participate
-            in today's reward program.
+            Complete your store attendance to
+            participate in today's reward program.
           </Text>
         </View>
       </View>
 
       {/* ===================================================== */}
-      {/* ATTENDANCE */}
+      {/* STORE ATTENDANCE */}
       {/* ===================================================== */}
 
       <View style={styles.section}>
@@ -52,7 +55,9 @@ export default function SalesHomeScreen() {
 
         <View style={styles.card}>
           <View style={styles.cardIcon}>
-            <Text style={styles.cardEmoji}>📍</Text>
+            <Text style={styles.cardEmoji}>
+              📍
+            </Text>
           </View>
 
           <View style={styles.cardContent}>
@@ -69,38 +74,35 @@ export default function SalesHomeScreen() {
           <PrimaryButton
             title="SELECT STORE"
             onPress={() =>
-              router.push('/(sales)/stores')
+              router.push(
+                '/(sales)/stores'
+              )
             }
           />
         </View>
       </View>
 
       {/* ===================================================== */}
-      {/* ATTENDANCE STATUS */}
+      {/* CURRENT ATTENDANCE */}
       {/* ===================================================== */}
 
       {lastSubmission ? (
         <View style={styles.statusCard}>
+          {/* HEADER */}
+
           <View style={styles.statusHeader}>
             <Text style={styles.statusTitle}>
               CURRENT ATTENDANCE
             </Text>
 
-            <View
-              style={[
-                styles.statusBadge,
-                lastSubmission.status === 'approved'
-                  ? styles.statusApproved
-                  : lastSubmission.status === 'pending'
-                    ? styles.statusPending
-                    : styles.statusRejected,
-              ]}
-            >
+            <View style={styles.statusBadge}>
               <Text style={styles.statusBadgeText}>
-                {lastSubmission.status.toUpperCase()}
+                OK
               </Text>
             </View>
           </View>
+
+          {/* STORE */}
 
           {selectedStore ? (
             <Text style={styles.statusStore}>
@@ -108,15 +110,78 @@ export default function SalesHomeScreen() {
             </Text>
           ) : null}
 
+          {/* ATTENDANCE STATUS */}
+
           <Text style={styles.statusDescription}>
-            {spinCompleted
-              ? 'Attendance completed and reward already claimed.'
-              : lastSubmission.status === 'approved'
-                ? 'Attendance approved. Continue through the attendance result to access your reward.'
-                : lastSubmission.status === 'pending'
-                  ? 'Your attendance is waiting for admin approval.'
-                  : 'Attendance was rejected. Please complete attendance again.'}
+            Your attendance has been successfully
+            submitted.
           </Text>
+
+          {/* ================================================= */}
+          {/* ORDER STATUS */}
+          {/* ================================================= */}
+
+          {orderPlaced !== null ? (
+            <View style={styles.orderStatusCard}>
+              <View style={styles.orderStatusLeft}>
+                <Text style={styles.orderStatusLabel}>
+                  ORDER
+                </Text>
+
+                <Text
+                  style={[
+                    styles.orderStatusValue,
+                    orderPlaced
+                      ? styles.orderYes
+                      : styles.orderNo,
+                  ]}
+                >
+                  {orderPlaced
+                    ? 'YES'
+                    : 'NO'}
+                </Text>
+              </View>
+
+              <View
+                style={[
+                  styles.orderStatusIcon,
+                  orderPlaced
+                    ? styles.orderYesBackground
+                    : styles.orderNoBackground,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.orderStatusIconText,
+                    orderPlaced
+                      ? styles.orderYesIconText
+                      : styles.orderNoIconText,
+                  ]}
+                >
+                  {orderPlaced
+                    ? '✓'
+                    : '—'}
+                </Text>
+              </View>
+            </View>
+          ) : null}
+
+          {/* ================================================= */}
+          {/* CONTINUE TO SPIN */}
+          {/* ================================================= */}
+
+          {orderPlaced === true &&
+          !spinCompleted ? (
+            <PrimaryButton
+              title="GO TO SPIN WHEEL"
+              onPress={() =>
+                router.push(
+                  '/(sales)/spin'
+                )
+              }
+              style={styles.statusButton}
+            />
+          ) : null}
         </View>
       ) : null}
 
@@ -137,8 +202,8 @@ export default function SalesHomeScreen() {
           </Text>
 
           <Text style={styles.completedText}>
-            You have already spun the reward wheel
-            for this attendance.
+            You have already completed the reward
+            wheel for this visit.
           </Text>
 
           {selectedStore ? (
@@ -169,7 +234,9 @@ export default function SalesHomeScreen() {
           title="VIEW"
           variant="secondary"
           onPress={() =>
-            router.push('/(sales)/history')
+            router.push(
+              '/(sales)/history'
+            )
           }
         />
       </View>
@@ -194,9 +261,9 @@ export default function SalesHomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  /* ========================================================= */
-  /* WELCOME */
-  /* ========================================================= */
+  /* =========================================================
+   * WELCOME
+   * ========================================================= */
 
   welcomeCard: {
     flexDirection: 'row',
@@ -240,9 +307,9 @@ const styles = StyleSheet.create({
     lineHeight: 16,
   },
 
-  /* ========================================================= */
-  /* SECTIONS */
-  /* ========================================================= */
+  /* =========================================================
+   * SECTIONS
+   * ========================================================= */
 
   section: {
     marginBottom: 18,
@@ -256,9 +323,9 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
 
-  /* ========================================================= */
-  /* ATTENDANCE */
-  /* ========================================================= */
+  /* =========================================================
+   * ATTENDANCE
+   * ========================================================= */
 
   card: {
     backgroundColor: '#ffffff',
@@ -299,14 +366,14 @@ const styles = StyleSheet.create({
     lineHeight: 17,
   },
 
-  /* ========================================================= */
-  /* CURRENT ATTENDANCE */
-  /* ========================================================= */
+  /* =========================================================
+   * CURRENT ATTENDANCE
+   * ========================================================= */
 
   statusCard: {
-    backgroundColor: '#ffffff',
+    backgroundColor: '#f0fdf4',
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: '#bbf7d0',
     borderRadius: 15,
     padding: 14,
     marginBottom: 18,
@@ -322,50 +389,114 @@ const styles = StyleSheet.create({
   statusTitle: {
     fontSize: 10,
     fontWeight: '900',
-    color: '#94a3b8',
+    color: '#64748b',
     letterSpacing: 1,
   },
 
   statusBadge: {
-    borderRadius: 20,
-    paddingHorizontal: 9,
-    paddingVertical: 4,
-  },
-
-  statusApproved: {
     backgroundColor: '#dcfce7',
-  },
-
-  statusPending: {
-    backgroundColor: '#fef3c7',
-  },
-
-  statusRejected: {
-    backgroundColor: '#fee2e2',
+    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
   },
 
   statusBadgeText: {
     fontSize: 9,
     fontWeight: '900',
-    color: '#334155',
+    color: '#166534',
   },
 
   statusStore: {
     fontSize: 14,
     fontWeight: '800',
     color: '#111827',
-    marginBottom: 4,
+    marginBottom: 5,
   },
 
   statusDescription: {
     fontSize: 11,
     color: '#64748b',
     lineHeight: 17,
+    marginBottom: 12,
   },
 
-  /* ========================================================= */
-  /* REWARD COMPLETED */
-  /* ========================================================= */
+  /* =========================================================
+   * ORDER STATUS
+   * ========================================================= */
+
+  orderStatusCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 12,
+  },
+
+  orderStatusLeft: {
+    flex: 1,
+  },
+
+  orderStatusLabel: {
+    fontSize: 9,
+    fontWeight: '900',
+    color: '#94a3b8',
+    letterSpacing: 1,
+    marginBottom: 3,
+  },
+
+  orderStatusValue: {
+    fontSize: 18,
+    fontWeight: '900',
+  },
+
+  orderYes: {
+    color: '#15803d',
+  },
+
+  orderNo: {
+    color: '#64748b',
+  },
+
+  orderStatusIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  orderYesBackground: {
+    backgroundColor: '#dcfce7',
+  },
+
+  orderNoBackground: {
+    backgroundColor: '#f1f5f9',
+  },
+
+  orderStatusIconText: {
+    fontSize: 20,
+    fontWeight: '900',
+  },
+
+  orderYesIconText: {
+    color: '#16a34a',
+  },
+
+  orderNoIconText: {
+    color: '#64748b',
+  },
+
+  statusButton: {
+    marginTop: 2,
+  },
+
+  /* =========================================================
+   * REWARD COMPLETED
+   * ========================================================= */
 
   completedCard: {
     backgroundColor: '#f0fdf4',
@@ -412,9 +543,9 @@ const styles = StyleSheet.create({
     color: '#15803d',
   },
 
-  /* ========================================================= */
-  /* HISTORY */
-  /* ========================================================= */
+  /* =========================================================
+   * HISTORY
+   * ========================================================= */
 
   historyCard: {
     flexDirection: 'row',
@@ -445,9 +576,9 @@ const styles = StyleSheet.create({
     color: '#94a3b8',
   },
 
-  /* ========================================================= */
-  /* FOOTER */
-  /* ========================================================= */
+  /* =========================================================
+   * FOOTER
+   * ========================================================= */
 
   signOut: {
     marginBottom: 12,

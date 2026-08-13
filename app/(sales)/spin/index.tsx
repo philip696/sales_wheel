@@ -53,9 +53,10 @@ export default function SpinScreen() {
   const {
     selectedStore,
     lastSubmission,
-    approvedAttendanceStoreId,
+    orderPlaced,
     spinCompleted,
     setSpinCompleted,
+    setLastSpin,
   } = useAttendanceFlow();
 
   const [spinning, setSpinning] = useState(false);
@@ -72,18 +73,34 @@ export default function SpinScreen() {
     useRef(0);
 
   /*
-   * Attendance must be approved for
-   * the currently selected store.
+   * ============================================================
+   * SPIN ELIGIBILITY
+   * ============================================================
+   *
+   * New flow:
+   *
+   * Attendance submitted
+   *        ↓
+   * Order YES
+   *        ↓
+   * Spin
+   *
+   * We do NOT require attendance.status === "approved"
+   * here.
+   *
+   * The attendance submission has already been accepted
+   * before reaching this screen.
    */
-  const isAttendanceApproved =
-    lastSubmission?.status === 'approved' &&
-    approvedAttendanceStoreId !== null &&
-    selectedStore?.id ===
-      approvedAttendanceStoreId;
+
+  const canSpin =
+    !!lastSubmission &&
+    !!selectedStore &&
+    orderPlaced === true &&
+    !spinCompleted;
 
   /*
    * ============================================================
-   * ALREADY SPUN
+   * ALREADY COMPLETED
    * ============================================================
    */
 
@@ -103,7 +120,7 @@ export default function SpinScreen() {
           </Text>
 
           <Text style={styles.completedText}>
-            You have already used your Spin Wheel
+            You have already used the Spin Wheel
             for this attendance.
           </Text>
 
@@ -131,21 +148,15 @@ export default function SpinScreen() {
 
   /*
    * ============================================================
-   * ATTENDANCE LOCK
+   * CANNOT SPIN
    * ============================================================
    */
 
-  if (!isAttendanceApproved) {
-    const isPending =
-      lastSubmission?.status === 'pending';
-
-    const isRejected =
-      lastSubmission?.status === 'rejected';
-
+  if (!canSpin) {
     return (
       <ScreenContainer
         title="Spin Wheel"
-        subtitle="Attendance required"
+        subtitle="Reward unavailable"
       >
         <View style={styles.lockedCard}>
           <Text style={styles.lockedEmoji}>
@@ -153,77 +164,51 @@ export default function SpinScreen() {
           </Text>
 
           <Text style={styles.lockedTitle}>
-            Complete Attendance First
+            Spin Not Available
           </Text>
 
           <Text style={styles.lockedText}>
-            You must complete an attendance check
-            and receive approval before you can
-            spin the reward wheel.
+            You can only use the Spin Wheel after
+            completing attendance and confirming
+            that an order was placed.
           </Text>
 
-          {isPending ? (
-            <View
-              style={styles.statusBoxPending}
-            >
-              <Text
-                style={
-                  styles.statusTitlePending
-                }
-              >
-                Attendance Pending
-              </Text>
-
-              <Text
-                style={
-                  styles.statusTextPending
-                }
-              >
-                Your attendance is currently
-                waiting for approval.
-              </Text>
-            </View>
-          ) : null}
-
-          {isRejected ? (
-            <View
-              style={styles.statusBoxRejected}
-            >
-              <Text
-                style={
-                  styles.statusTitleRejected
-                }
-              >
-                Attendance Rejected
-              </Text>
-
-              <Text
-                style={
-                  styles.statusTextRejected
-                }
-              >
-                Your previous attendance was
-                rejected. Please complete a new
-                attendance.
-              </Text>
-            </View>
-          ) : null}
-
           {!lastSubmission ? (
-            <View
-              style={styles.statusBoxInfo}
-            >
-              <Text
-                style={styles.statusTitleInfo}
-              >
+            <View style={styles.statusBoxInfo}>
+              <Text style={styles.statusTitleInfo}>
                 No Attendance Found
               </Text>
 
-              <Text
-                style={styles.statusTextInfo}
-              >
-                Complete your store attendance
-                before using the Spin Wheel.
+              <Text style={styles.statusTextInfo}>
+                Complete a store attendance first.
+              </Text>
+            </View>
+          ) : null}
+
+          {!selectedStore ? (
+            <View style={styles.statusBoxInfo}>
+              <Text style={styles.statusTitleInfo}>
+                No Store Selected
+              </Text>
+
+              <Text style={styles.statusTextInfo}>
+                Please select a store and complete
+                attendance first.
+              </Text>
+            </View>
+          ) : null}
+
+          {lastSubmission &&
+          selectedStore &&
+          orderPlaced !== true ? (
+            <View style={styles.statusBoxInfo}>
+              <Text style={styles.statusTitleInfo}>
+                No Order Recorded
+              </Text>
+
+              <Text style={styles.statusTextInfo}>
+                The Spin Wheel is only available
+                when an order was placed.
               </Text>
             </View>
           ) : null}
@@ -231,27 +216,13 @@ export default function SpinScreen() {
           <TouchableOpacity
             style={styles.attendanceButton}
             onPress={() =>
-              router.replace(
-                '/(sales)/stores'
-              )
+              router.replace('/(sales)')
             }
             activeOpacity={0.8}
           >
             <Text
               style={styles.attendanceButtonText}
             >
-              START ATTENDANCE
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() =>
-              router.replace('/(sales)')
-            }
-            activeOpacity={0.8}
-          >
-            <Text style={styles.backButtonText}>
               BACK TO HOME
             </Text>
           </TouchableOpacity>
@@ -262,12 +233,12 @@ export default function SpinScreen() {
 
   /*
    * ============================================================
-   * SPIN
+   * SPIN WHEEL
    * ============================================================
    */
 
   const spinWheel = () => {
-    if (!isAttendanceApproved) {
+    if (!canSpin) {
       return;
     }
 
@@ -281,6 +252,18 @@ export default function SpinScreen() {
 
     setSpinning(true);
 
+    /*
+     * Pick the reward.
+     *
+     * IMPORTANT:
+     *
+     * This is currently client-side randomization.
+     *
+     * If your Supabase request_spin RPC is already
+     * implemented, we should move this reward selection
+     * to the server for anti-cheat protection.
+     */
+
     const randomIndex =
       Math.floor(
         Math.random() *
@@ -290,7 +273,8 @@ export default function SpinScreen() {
     const sliceAngle =
       360 / DISCOUNTS.length;
 
-    const extraTurns = 360 * 5;
+    const extraTurns =
+      360 * 5;
 
     const targetSliceDegree =
       360 -
@@ -320,17 +304,15 @@ export default function SpinScreen() {
       setWonDiscount(reward);
 
       /*
-       * IMPORTANT:
+       * Save the reward in the flow.
        *
-       * Mark the wheel as completed.
+       * This is optional depending on your
+       * RequestSpinResult type.
        *
-       * This causes:
-       *
-       * Spin → Reward → Home
-       *
-       * and the Spin Wheel option disappears
-       * from the sales home screen.
+       * We intentionally don't create a fake
+       * server response here.
        */
+
       setSpinCompleted(true);
     });
   };
@@ -344,13 +326,19 @@ export default function SpinScreen() {
       ],
     });
 
+  /*
+   * ============================================================
+   * MAIN SCREEN
+   * ============================================================
+   */
+
   return (
     <ScreenContainer
       title="Spin Wheel"
       subtitle="Spin to win 5%, 10%, 15%, or 20% OFF"
     >
       <View style={styles.wheelCard}>
-        {/* Approved Attendance */}
+        {/* APPROVED / READY */}
 
         <View style={styles.approvedBadge}>
           <Text
@@ -358,7 +346,7 @@ export default function SpinScreen() {
               styles.approvedBadgeText
             }
           >
-            ✓ ATTENDANCE APPROVED
+            ✓ ATTENDANCE COMPLETE
           </Text>
         </View>
 
@@ -368,7 +356,15 @@ export default function SpinScreen() {
           </Text>
         ) : null}
 
-        {/* Pointer */}
+        {/* ORDER */}
+
+        <View style={styles.orderBadge}>
+          <Text style={styles.orderBadgeText}>
+            🛒 ORDER PLACED
+          </Text>
+        </View>
+
+        {/* POINTER */}
 
         <View
           style={styles.pointerContainer}
@@ -378,7 +374,7 @@ export default function SpinScreen() {
           </Text>
         </View>
 
-        {/* Wheel */}
+        {/* WHEEL */}
 
         <View style={styles.wheelWrapper}>
           <Animated.View
@@ -532,7 +528,7 @@ export default function SpinScreen() {
           </View>
         </View>
 
-        {/* Result */}
+        {/* RESULT */}
 
         {wonDiscount ? (
           <View
@@ -583,15 +579,14 @@ export default function SpinScreen() {
           </View>
         ) : (
           <Text style={styles.hint}>
-            Your attendance has been
-            approved.
+            Order confirmed.
             {'\n'}
             Spin the wheel to get your
-            reward.
+            reward!
           </Text>
         )}
 
-        {/* Spin Button */}
+        {/* SPIN BUTTON */}
 
         <TouchableOpacity
           style={[
@@ -618,7 +613,7 @@ export default function SpinScreen() {
           </Text>
         </TouchableOpacity>
 
-        {/* Claim */}
+        {/* CLAIM */}
 
         {wonDiscount ? (
           <TouchableOpacity
@@ -649,7 +644,9 @@ export default function SpinScreen() {
 const WHEEL_SIZE = 220;
 
 const styles = StyleSheet.create({
-  /* LOCKED */
+  /* =========================================================
+   * LOCKED
+   * ========================================================= */
 
   lockedCard: {
     flex: 1,
@@ -681,56 +678,6 @@ const styles = StyleSheet.create({
     lineHeight: 21,
     textAlign: 'center',
     marginBottom: 18,
-  },
-
-  statusBoxPending: {
-    width: '100%',
-    backgroundColor: '#fffbeb',
-    borderWidth: 1,
-    borderColor: '#fde68a',
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 14,
-  },
-
-  statusTitlePending: {
-    color: '#b45309',
-    fontSize: 14,
-    fontWeight: '800',
-    textAlign: 'center',
-    marginBottom: 4,
-  },
-
-  statusTextPending: {
-    color: '#92400e',
-    fontSize: 12,
-    lineHeight: 18,
-    textAlign: 'center',
-  },
-
-  statusBoxRejected: {
-    width: '100%',
-    backgroundColor: '#fef2f2',
-    borderWidth: 1,
-    borderColor: '#fecaca',
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 14,
-  },
-
-  statusTitleRejected: {
-    color: '#dc2626',
-    fontSize: 14,
-    fontWeight: '800',
-    textAlign: 'center',
-    marginBottom: 4,
-  },
-
-  statusTextRejected: {
-    color: '#991b1b',
-    fontSize: 12,
-    lineHeight: 18,
-    textAlign: 'center',
   },
 
   statusBoxInfo: {
@@ -774,7 +721,9 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
 
-  /* COMPLETED */
+  /* =========================================================
+   * COMPLETED
+   * ========================================================= */
 
   completedCard: {
     flex: 1,
@@ -826,7 +775,9 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
 
-  /* WHEEL */
+  /* =========================================================
+   * WHEEL
+   * ========================================================= */
 
   wheelCard: {
     flex: 1,
@@ -861,7 +812,23 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#64748b',
     fontWeight: '700',
-    marginBottom: 5,
+    marginBottom: 6,
+  },
+
+  orderBadge: {
+    backgroundColor: '#eff6ff',
+    borderWidth: 1,
+    borderColor: '#bfdbfe',
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    marginBottom: 4,
+  },
+
+  orderBadgeText: {
+    color: '#2563eb',
+    fontSize: 10,
+    fontWeight: '900',
   },
 
   pointerContainer: {
@@ -966,7 +933,9 @@ const styles = StyleSheet.create({
     fontSize: 20,
   },
 
-  /* RESULT */
+  /* =========================================================
+   * RESULT
+   * ========================================================= */
 
   hint: {
     textAlign: 'center',
@@ -1021,7 +990,9 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
   },
 
-  /* BUTTON */
+  /* =========================================================
+   * SPIN BUTTON
+   * ========================================================= */
 
   spinButton: {
     backgroundColor: '#111827',

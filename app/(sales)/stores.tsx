@@ -37,15 +37,19 @@ export default function StoresScreen() {
 
     try {
       const result = await searchStores({
-        query: searchQuery,
+        query: searchQuery.trim(),
         page: 1,
         pageSize: 20,
       });
 
       setStores(result.data);
     } catch (err) {
+      console.error('SALES STORE LOAD ERROR:', err);
+
       setError(
-        err instanceof Error ? err.message : 'Failed to load stores'
+        err instanceof Error
+          ? err.message
+          : 'Failed to load stores'
       );
     } finally {
       setLoading(false);
@@ -56,9 +60,38 @@ export default function StoresScreen() {
     loadStores('');
   }, [loadStores]);
 
+  /*
+   * ---------------------------------------------------------
+   * SELECT STORE
+   * ---------------------------------------------------------
+   *
+   * This is the beginning of the new sales flow:
+   *
+   * Select Store
+   *      ↓
+   * GPS Verification
+   *      ↓
+   * Fresh Camera Photo
+   *      ↓
+   * Submit Attendance
+   *
+   * We only store the selected Store in the existing
+   * AttendanceFlowContext. The actual GPS validation is
+   * handled by the attendance screen/backend.
+   */
   const handleSelectStore = (store: Store) => {
     setSelectedStore(store);
+
     router.push('/(sales)/attendance');
+  };
+
+  const handleClearSearch = () => {
+    setQuery('');
+    loadStores('');
+  };
+
+  const handleSearch = () => {
+    loadStores(query);
   };
 
   return (
@@ -66,7 +99,10 @@ export default function StoresScreen() {
       title="Select Store"
       subtitle="Choose the store you are visiting today"
     >
-      {/* Search */}
+      {/* =====================================================
+          SEARCH
+      ====================================================== */}
+
       <View style={styles.searchContainer}>
         <Text style={styles.searchIcon}>🔍</Text>
 
@@ -76,49 +112,70 @@ export default function StoresScreen() {
           placeholderTextColor="#94a3b8"
           value={query}
           onChangeText={setQuery}
-          onSubmitEditing={() => loadStores(query)}
+          onSubmitEditing={handleSearch}
           returnKeyType="search"
           autoCapitalize="none"
+          autoCorrect={false}
         />
 
         {query.length > 0 ? (
           <Pressable
-            onPress={() => {
-              setQuery('');
-              loadStores('');
-            }}
+            onPress={handleClearSearch}
+            hitSlop={8}
           >
             <Text style={styles.clear}>✕</Text>
           </Pressable>
         ) : null}
       </View>
 
-      {/* Header */}
+      {/* =====================================================
+          LIST HEADER
+      ====================================================== */}
+
       <View style={styles.listHeader}>
-        <Text style={styles.sectionTitle}>
-          AVAILABLE STORES
-        </Text>
+        <View>
+          <Text style={styles.sectionTitle}>
+            AVAILABLE STORES
+          </Text>
+
+          <Text style={styles.sectionSubtitle}>
+            Select a store to start attendance verification.
+          </Text>
+        </View>
 
         {!loading && !error ? (
-          <Text style={styles.storeCount}>
-            {stores.length} {stores.length === 1 ? 'store' : 'stores'}
-          </Text>
+          <View style={styles.storeCountBadge}>
+            <Text style={styles.storeCount}>
+              {stores.length}
+            </Text>
+          </View>
         ) : null}
       </View>
 
-      {/* Loading */}
+      {/* =====================================================
+          LOADING
+      ====================================================== */}
+
       {loading ? (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#2563eb" />
+          <ActivityIndicator
+            size="large"
+            color="#2563eb"
+          />
 
           <Text style={styles.loadingText}>
             Loading stores...
           </Text>
         </View>
       ) : error ? (
-        /* Error */
+        /* ===================================================
+           ERROR
+        ==================================================== */
+
         <View style={styles.errorCard}>
-          <Text style={styles.errorIcon}>⚠️</Text>
+          <View style={styles.errorIconContainer}>
+            <Text style={styles.errorIcon}>⚠️</Text>
+          </View>
 
           <Text style={styles.errorTitle}>
             Unable to load stores
@@ -129,7 +186,10 @@ export default function StoresScreen() {
           </Text>
 
           <Pressable
-            style={styles.retryButton}
+            style={({ pressed }) => [
+              styles.retryButton,
+              pressed && styles.retryButtonPressed,
+            ]}
             onPress={() => loadStores(query)}
           >
             <Text style={styles.retryText}>
@@ -138,11 +198,15 @@ export default function StoresScreen() {
           </Pressable>
         </View>
       ) : (
-        /* Store List */
+        /* ===================================================
+           STORE LIST
+        ==================================================== */
+
         <FlatList
           data={stores}
           keyExtractor={(item) => item.id}
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
           contentContainerStyle={
             stores.length === 0
               ? styles.emptyList
@@ -157,11 +221,15 @@ export default function StoresScreen() {
               onPress={() => handleSelectStore(item)}
             >
               {/* Store Icon */}
+
               <View style={styles.storeIcon}>
-                <Text style={styles.storeEmoji}>🏪</Text>
+                <Text style={styles.storeEmoji}>
+                  🏪
+                </Text>
               </View>
 
               {/* Store Information */}
+
               <View style={styles.storeInfo}>
                 <Text
                   style={styles.storeName}
@@ -170,9 +238,11 @@ export default function StoresScreen() {
                   {item.name}
                 </Text>
 
-                <Text style={styles.storeCode}>
-                  {item.store_code}
-                </Text>
+                {item.store_code ? (
+                  <Text style={styles.storeCode}>
+                    {item.store_code}
+                  </Text>
+                ) : null}
 
                 {item.address ? (
                   <Text
@@ -183,14 +253,29 @@ export default function StoresScreen() {
                   </Text>
                 ) : null}
 
-                <View style={styles.radiusBadge}>
-                  <Text style={styles.radiusText}>
-                    📍 {item.radius_meters}m GPS radius
+                {/*
+
+                  Do not display the actual store coordinates.
+
+                  The sales user only needs to know that GPS
+                  verification will happen after selecting
+                  the store.
+
+                */}
+
+                <View style={styles.verificationBadge}>
+                  <Text style={styles.verificationIcon}>
+                    📍
+                  </Text>
+
+                  <Text style={styles.verificationText}>
+                    GPS verification required
                   </Text>
                 </View>
               </View>
 
               {/* Arrow */}
+
               <View style={styles.arrowContainer}>
                 <Text style={styles.arrow}>
                   ›
@@ -215,17 +300,50 @@ export default function StoresScreen() {
                   ? 'Try searching with a different store name or code.'
                   : 'There are currently no active stores available.'}
               </Text>
+
+              {query ? (
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.clearSearchButton,
+                    pressed &&
+                      styles.clearSearchButtonPressed,
+                  ]}
+                  onPress={handleClearSearch}
+                >
+                  <Text style={styles.clearSearchText}>
+                    CLEAR SEARCH
+                  </Text>
+                </Pressable>
+              ) : null}
             </View>
           }
         />
       )}
 
-      {/* Footer */}
-      {!loading && !error && stores.length > 0 ? (
+      {/* =====================================================
+          FOOTER
+      ====================================================== */}
+
+      {!loading &&
+      !error &&
+      stores.length > 0 ? (
         <View style={styles.footer}>
-          <Text style={styles.footerText}>
-            Select a store to begin attendance verification.
-          </Text>
+          <View style={styles.footerIconContainer}>
+            <Text style={styles.footerIcon}>
+              📍
+            </Text>
+          </View>
+
+          <View style={styles.footerContent}>
+            <Text style={styles.footerTitle}>
+              Attendance verification
+            </Text>
+
+            <Text style={styles.footerText}>
+              After selecting a store, your location will be
+              verified before you can submit attendance.
+            </Text>
+          </View>
         </View>
       ) : null}
     </ScreenContainer>
@@ -233,6 +351,10 @@ export default function StoresScreen() {
 }
 
 const styles = StyleSheet.create({
+  /* =========================================================
+     SEARCH
+  ========================================================= */
+
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -263,11 +385,15 @@ const styles = StyleSheet.create({
     padding: 4,
   },
 
+  /* =========================================================
+     HEADER
+  ========================================================= */
+
   listHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 9,
+    marginBottom: 12,
   },
 
   sectionTitle: {
@@ -277,11 +403,31 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
   },
 
-  storeCount: {
+  sectionSubtitle: {
+    marginTop: 3,
     fontSize: 10,
     color: '#94a3b8',
-    fontWeight: '600',
   },
+
+  storeCountBadge: {
+    minWidth: 32,
+    height: 30,
+    paddingHorizontal: 9,
+    borderRadius: 15,
+    backgroundColor: '#eff6ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  storeCount: {
+    fontSize: 11,
+    color: '#2563eb',
+    fontWeight: '800',
+  },
+
+  /* =========================================================
+     LIST
+  ========================================================= */
 
   listContent: {
     paddingBottom: 10,
@@ -340,22 +486,37 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: '#94a3b8',
     lineHeight: 15,
-    marginBottom: 6,
+    marginBottom: 7,
   },
 
-  radiusBadge: {
+  /* =========================================================
+     GPS VERIFICATION BADGE
+  ========================================================= */
+
+  verificationBadge: {
     alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: '#f1f5f9',
     borderRadius: 7,
     paddingHorizontal: 7,
     paddingVertical: 4,
   },
 
-  radiusText: {
+  verificationIcon: {
+    fontSize: 10,
+    marginRight: 4,
+  },
+
+  verificationText: {
     fontSize: 9,
     fontWeight: '700',
     color: '#64748b',
   },
+
+  /* =========================================================
+     ARROW
+  ========================================================= */
 
   arrowContainer: {
     marginLeft: 8,
@@ -373,6 +534,10 @@ const styles = StyleSheet.create({
     lineHeight: 25,
   },
 
+  /* =========================================================
+     LOADING
+  ========================================================= */
+
   loadingContainer: {
     flex: 1,
     alignItems: 'center',
@@ -386,6 +551,10 @@ const styles = StyleSheet.create({
     color: '#94a3b8',
   },
 
+  /* =========================================================
+     ERROR
+  ========================================================= */
+
   errorCard: {
     alignItems: 'center',
     backgroundColor: '#fef2f2',
@@ -396,9 +565,18 @@ const styles = StyleSheet.create({
     marginTop: 20,
   },
 
+  errorIconContainer: {
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    backgroundColor: '#fee2e2',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+
   errorIcon: {
-    fontSize: 30,
-    marginBottom: 10,
+    fontSize: 28,
   },
 
   errorTitle: {
@@ -423,12 +601,20 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
 
+  retryButtonPressed: {
+    opacity: 0.7,
+  },
+
   retryText: {
     color: '#ffffff',
     fontSize: 10,
     fontWeight: '900',
     letterSpacing: 0.5,
   },
+
+  /* =========================================================
+     EMPTY
+  ========================================================= */
 
   emptyList: {
     flexGrow: 1,
@@ -469,14 +655,69 @@ const styles = StyleSheet.create({
     lineHeight: 17,
   },
 
+  clearSearchButton: {
+    marginTop: 16,
+    backgroundColor: '#eff6ff',
+    borderRadius: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+  },
+
+  clearSearchButtonPressed: {
+    opacity: 0.7,
+  },
+
+  clearSearchText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#2563eb',
+    letterSpacing: 0.5,
+  },
+
+  /* =========================================================
+     FOOTER
+  ========================================================= */
+
   footer: {
-    paddingTop: 8,
-    paddingBottom: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#eff6ff',
+    borderWidth: 1,
+    borderColor: '#bfdbfe',
+    borderRadius: 14,
+    padding: 12,
+    marginTop: 4,
+    marginBottom: 4,
+  },
+
+  footerIconContainer: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#dbeafe',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+
+  footerIcon: {
+    fontSize: 17,
+  },
+
+  footerContent: {
+    flex: 1,
+  },
+
+  footerTitle: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#1e40af',
+    marginBottom: 2,
   },
 
   footerText: {
-    textAlign: 'center',
     fontSize: 9,
-    color: '#9ca3af',
+    color: '#64748b',
+    lineHeight: 14,
   },
 });
