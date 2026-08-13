@@ -1,41 +1,105 @@
-import { View, Text, StyleSheet, type ViewProps } from 'react-native';
+import {
+  ReactNode,
+} from 'react';
 
-interface ScreenContainerProps extends ViewProps {
+import {
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
+
+interface ScreenContainerProps {
+  children: ReactNode;
   title?: string;
   subtitle?: string;
 }
 
 export function ScreenContainer({
+  children,
   title,
   subtitle,
-  children,
-  style,
-  ...props
 }: ScreenContainerProps) {
   return (
-    <View style={[styles.container, style]} {...props}>
-      {title ? <Text style={styles.title}>{title}</Text> : null}
-      {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
-      {children}
-    </View>
+    <KeyboardAvoidingView
+      style={styles.keyboard}
+      behavior={
+        Platform.OS === 'ios'
+          ? 'padding'
+          : undefined
+      }
+    >
+      <View style={styles.container}>
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={
+            styles.content
+          }
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          bounces={true}
+        >
+          {/* HEADER */}
+
+          {title ? (
+            <View style={styles.header}>
+              <Text style={styles.title}>
+                {title}
+              </Text>
+
+              {subtitle ? (
+                <Text style={styles.subtitle}>
+                  {subtitle}
+                </Text>
+              ) : null}
+            </View>
+          ) : null}
+
+          {/* PAGE CONTENT */}
+
+          {children}
+        </ScrollView>
+      </View>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
+  keyboard: {
+    flex: 1,
+  },
+
   container: {
     flex: 1,
-    padding: 20,
-    backgroundColor: '#fff',
+    backgroundColor: '#f8fafc',
   },
-  title: {
-    fontSize: 24,
-    fontWeight: '700',
-    marginBottom: 8,
-    color: '#111',
+
+  scroll: {
+    flex: 1,
   },
-  subtitle: {
-    fontSize: 14,
-    color: '#666',
+
+  content: {
+    paddingHorizontal: 16,
+    paddingTop: 18,
+    paddingBottom: 40,
+  },
+
+  header: {
     marginBottom: 20,
+  },
+
+  title: {
+    fontSize: 27,
+    fontWeight: '900',
+    color: '#111827',
+    marginBottom: 4,
+  },
+
+  subtitle: {
+    fontSize: 12,
+    color: '#64748b',
+    lineHeight: 18,
   },
 });

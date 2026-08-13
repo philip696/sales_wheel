@@ -1,8 +1,8 @@
 import {
-  Pressable,
-  Text,
-  StyleSheet,
   ActivityIndicator,
+  Pressable,
+  StyleSheet,
+  Text,
   type PressableProps,
 } from 'react-native';
 
@@ -24,16 +24,24 @@ export function PrimaryButton({
 
   return (
     <Pressable
-      style={({ pressed }) => {
+      style={({ pressed, hovered }) => {
         const baseStyles = [
           styles.button,
           styles[variant],
           isDisabled && styles.disabled,
           pressed && !isDisabled && styles.pressed,
         ];
+
         if (typeof style === 'function') {
-          return [...baseStyles, style({ pressed })];
+          return [
+            ...baseStyles,
+            style({
+              pressed,
+              hovered,
+            }),
+          ];
         }
+
         return [...baseStyles, style];
       }}
       disabled={isDisabled}
@@ -57,21 +65,27 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     minHeight: 48,
   },
+
   primary: {
     backgroundColor: '#2563eb',
   },
+
   secondary: {
     backgroundColor: '#64748b',
   },
+
   danger: {
     backgroundColor: '#dc2626',
   },
+
   disabled: {
     opacity: 0.5,
   },
+
   pressed: {
     opacity: 0.85,
   },
+
   text: {
     color: '#fff',
     fontSize: 16,

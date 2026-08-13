@@ -167,3 +167,22 @@ export interface RequestSpinResult {
   reward?: Pick<Reward, 'id' | 'name' | 'value'> | null;
   rejectionReason?: string | null;
 }
+/**
+ * APPEND-ONLY: add these to the bottom of src/types/index.ts
+ * Nothing existing in that file needs to change.
+ */
+
+/** Attendance record enriched with display names, for the admin list/card. */
+export interface AdminAttendanceRecord extends Attendance {
+  salesName: string;
+  storeName: string;
+}
+
+export interface ApproveAttendancePayload {
+  attendanceId: string;
+}
+
+export interface RejectAttendancePayload {
+  attendanceId: string;
+  reason: string;
+}

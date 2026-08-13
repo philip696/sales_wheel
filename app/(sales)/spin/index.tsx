@@ -1,5 +1,6 @@
 import { router } from 'expo-router';
 import { useRef, useState } from 'react';
+
 import {
   Animated,
   Easing,
@@ -11,76 +12,337 @@ import {
 
 import { ScreenContainer } from '@/src/components/ScreenContainer';
 
-// 4 distinct discount tiers
+import { useAttendanceFlow } from '@/src/features/attendance/AttendanceFlowContext';
+
 const DISCOUNTS = [
-  { 
-    id: 1, 
-    label: '5% OFF', 
-    color: '#3b82f6', // Blue
-    code: 'SAVE5NOW', 
-    message: 'Nice start! Take 5% off your next store order.' 
+  {
+    id: 1,
+    label: '5% OFF',
+    color: '#3b82f6',
+    code: 'SAVE5NOW',
+    message:
+      'Nice start! Take 5% off your next store order.',
   },
-  { 
-    id: 2, 
-    label: '10% OFF', 
-    color: '#10b981', // Green
-    code: 'SAVE10NOW', 
-    message: 'Great win! Enjoy 10% off your purchase.' 
+  {
+    id: 2,
+    label: '10% OFF',
+    color: '#10b981',
+    code: 'SAVE10NOW',
+    message:
+      'Great win! Enjoy 10% off your purchase.',
   },
-  { 
-    id: 3, 
-    label: '15% OFF', 
-    color: '#f59e0b', // Orange
-    code: 'SAVE15NOW', 
-    message: 'Awesome! 15% discount unlocked!' 
+  {
+    id: 3,
+    label: '15% OFF',
+    color: '#f59e0b',
+    code: 'SAVE15NOW',
+    message:
+      'Awesome! 15% discount unlocked!',
   },
-  { 
-    id: 4, 
-    label: '20% OFF', 
-    color: '#ef4444', // Red
-    code: 'SAVE20NOW', 
-    message: 'Jackpot! You got the maximum 20% discount!' 
+  {
+    id: 4,
+    label: '20% OFF',
+    color: '#ef4444',
+    code: 'SAVE20NOW',
+    message:
+      'Jackpot! You got the maximum 20% discount!',
   },
 ];
 
 export default function SpinScreen() {
-  const [spinning, setSpinning] = useState(false);
-  const [wonDiscount, setWonDiscount] = useState<typeof DISCOUNTS[number] | null>(null);
+  const {
+    selectedStore,
+    lastSubmission,
+    approvedAttendanceStoreId,
+    spinCompleted,
+    setSpinCompleted,
+  } = useAttendanceFlow();
 
-  const spinValue = useRef(new Animated.Value(0)).current;
-  const currentRotation = useRef(0);
+  const [spinning, setSpinning] = useState(false);
+
+  const [wonDiscount, setWonDiscount] =
+    useState<(typeof DISCOUNTS)[number] | null>(
+      null
+    );
+
+  const spinValue =
+    useRef(new Animated.Value(0)).current;
+
+  const currentRotation =
+    useRef(0);
+
+  /*
+   * Attendance must be approved for
+   * the currently selected store.
+   */
+  const isAttendanceApproved =
+    lastSubmission?.status === 'approved' &&
+    approvedAttendanceStoreId !== null &&
+    selectedStore?.id ===
+      approvedAttendanceStoreId;
+
+  /*
+   * ============================================================
+   * ALREADY SPUN
+   * ============================================================
+   */
+
+  if (spinCompleted) {
+    return (
+      <ScreenContainer
+        title="Spin Wheel"
+        subtitle="Reward already claimed"
+      >
+        <View style={styles.completedCard}>
+          <Text style={styles.completedEmoji}>
+            🎉
+          </Text>
+
+          <Text style={styles.completedTitle}>
+            Wheel Already Spun
+          </Text>
+
+          <Text style={styles.completedText}>
+            You have already used your Spin Wheel
+            for this attendance.
+          </Text>
+
+          {selectedStore ? (
+            <Text style={styles.completedStore}>
+              📍 {selectedStore.name}
+            </Text>
+          ) : null}
+
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() =>
+              router.replace('/(sales)')
+            }
+            activeOpacity={0.8}
+          >
+            <Text style={styles.backButtonText}>
+              BACK TO HOME
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </ScreenContainer>
+    );
+  }
+
+  /*
+   * ============================================================
+   * ATTENDANCE LOCK
+   * ============================================================
+   */
+
+  if (!isAttendanceApproved) {
+    const isPending =
+      lastSubmission?.status === 'pending';
+
+    const isRejected =
+      lastSubmission?.status === 'rejected';
+
+    return (
+      <ScreenContainer
+        title="Spin Wheel"
+        subtitle="Attendance required"
+      >
+        <View style={styles.lockedCard}>
+          <Text style={styles.lockedEmoji}>
+            🔒
+          </Text>
+
+          <Text style={styles.lockedTitle}>
+            Complete Attendance First
+          </Text>
+
+          <Text style={styles.lockedText}>
+            You must complete an attendance check
+            and receive approval before you can
+            spin the reward wheel.
+          </Text>
+
+          {isPending ? (
+            <View
+              style={styles.statusBoxPending}
+            >
+              <Text
+                style={
+                  styles.statusTitlePending
+                }
+              >
+                Attendance Pending
+              </Text>
+
+              <Text
+                style={
+                  styles.statusTextPending
+                }
+              >
+                Your attendance is currently
+                waiting for approval.
+              </Text>
+            </View>
+          ) : null}
+
+          {isRejected ? (
+            <View
+              style={styles.statusBoxRejected}
+            >
+              <Text
+                style={
+                  styles.statusTitleRejected
+                }
+              >
+                Attendance Rejected
+              </Text>
+
+              <Text
+                style={
+                  styles.statusTextRejected
+                }
+              >
+                Your previous attendance was
+                rejected. Please complete a new
+                attendance.
+              </Text>
+            </View>
+          ) : null}
+
+          {!lastSubmission ? (
+            <View
+              style={styles.statusBoxInfo}
+            >
+              <Text
+                style={styles.statusTitleInfo}
+              >
+                No Attendance Found
+              </Text>
+
+              <Text
+                style={styles.statusTextInfo}
+              >
+                Complete your store attendance
+                before using the Spin Wheel.
+              </Text>
+            </View>
+          ) : null}
+
+          <TouchableOpacity
+            style={styles.attendanceButton}
+            onPress={() =>
+              router.replace(
+                '/(sales)/stores'
+              )
+            }
+            activeOpacity={0.8}
+          >
+            <Text
+              style={styles.attendanceButtonText}
+            >
+              START ATTENDANCE
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() =>
+              router.replace('/(sales)')
+            }
+            activeOpacity={0.8}
+          >
+            <Text style={styles.backButtonText}>
+              BACK TO HOME
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </ScreenContainer>
+    );
+  }
+
+  /*
+   * ============================================================
+   * SPIN
+   * ============================================================
+   */
 
   const spinWheel = () => {
-    // Prevent spinning if currently spinning or if a reward has already been won
-    if (spinning || wonDiscount) return;
+    if (!isAttendanceApproved) {
+      return;
+    }
+
+    if (
+      spinning ||
+      wonDiscount ||
+      spinCompleted
+    ) {
+      return;
+    }
 
     setSpinning(true);
 
-    // Pick random index (0 to 3)
-    const randomIndex = Math.floor(Math.random() * DISCOUNTS.length);
-    const sliceAngle = 360 / DISCOUNTS.length; // 90 deg per slice
+    const randomIndex =
+      Math.floor(
+        Math.random() *
+          DISCOUNTS.length
+      );
 
-    // 5 full spins + align top pointer with the target slice center
+    const sliceAngle =
+      360 / DISCOUNTS.length;
+
     const extraTurns = 360 * 5;
-    const targetSliceDegree = 360 - (randomIndex * sliceAngle + 45);
-    const finalDegree = currentRotation.current + extraTurns + targetSliceDegree;
+
+    const targetSliceDegree =
+      360 -
+      (randomIndex * sliceAngle + 45);
+
+    const finalDegree =
+      currentRotation.current +
+      extraTurns +
+      targetSliceDegree;
 
     Animated.timing(spinValue, {
       toValue: finalDegree,
       duration: 4500,
-      easing: Easing.out(Easing.cubic),
+      easing: Easing.out(
+        Easing.cubic
+      ),
       useNativeDriver: true,
     }).start(() => {
-      currentRotation.current = finalDegree % 360;
+      currentRotation.current =
+        finalDegree % 360;
+
       setSpinning(false);
-      setWonDiscount(DISCOUNTS[randomIndex]);
+
+      const reward =
+        DISCOUNTS[randomIndex];
+
+      setWonDiscount(reward);
+
+      /*
+       * IMPORTANT:
+       *
+       * Mark the wheel as completed.
+       *
+       * This causes:
+       *
+       * Spin → Reward → Home
+       *
+       * and the Spin Wheel option disappears
+       * from the sales home screen.
+       */
+      setSpinCompleted(true);
     });
   };
 
-  const spinInterpolation = spinValue.interpolate({
-    inputRange: [0, 360],
-    outputRange: ['0deg', '360deg'],
-  });
+  const spinInterpolation =
+    spinValue.interpolate({
+      inputRange: [0, 360],
+      outputRange: [
+        '0deg',
+        '360deg',
+      ],
+    });
 
   return (
     <ScreenContainer
@@ -88,103 +350,297 @@ export default function SpinScreen() {
       subtitle="Spin to win 5%, 10%, 15%, or 20% OFF"
     >
       <View style={styles.wheelCard}>
-        {/* Pointer Arrow */}
-        <View style={styles.pointerContainer}>
-          <Text style={styles.pointerIcon}>▼</Text>
+        {/* Approved Attendance */}
+
+        <View style={styles.approvedBadge}>
+          <Text
+            style={
+              styles.approvedBadgeText
+            }
+          >
+            ✓ ATTENDANCE APPROVED
+          </Text>
         </View>
 
-        {/* Animated Wheel Container */}
+        {selectedStore ? (
+          <Text style={styles.storeText}>
+            📍 {selectedStore.name}
+          </Text>
+        ) : null}
+
+        {/* Pointer */}
+
+        <View
+          style={styles.pointerContainer}
+        >
+          <Text style={styles.pointerIcon}>
+            ▼
+          </Text>
+        </View>
+
+        {/* Wheel */}
+
         <View style={styles.wheelWrapper}>
           <Animated.View
             style={[
               styles.wheelContainer,
-              { transform: [{ rotate: spinInterpolation }] },
+              {
+                transform: [
+                  {
+                    rotate:
+                      spinInterpolation,
+                  },
+                ],
+              },
             ]}
           >
-            {/* Quadrant 1: Top-Right (5% OFF) */}
-            <View style={[styles.quadrant, styles.quadrantTR, { backgroundColor: DISCOUNTS[0].color }]}>
-              <Text style={[styles.quadrantText, { transform: [{ rotate: '45deg' }] }]}>
+            {/* 5% */}
+
+            <View
+              style={[
+                styles.quadrant,
+                styles.quadrantTR,
+                {
+                  backgroundColor:
+                    DISCOUNTS[0].color,
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.quadrantText,
+                  {
+                    transform: [
+                      {
+                        rotate:
+                          '45deg',
+                      },
+                    ],
+                  },
+                ]}
+              >
                 {DISCOUNTS[0].label}
               </Text>
             </View>
 
-            {/* Quadrant 2: Bottom-Right (10% OFF) */}
-            <View style={[styles.quadrant, styles.quadrantBR, { backgroundColor: DISCOUNTS[1].color }]}>
-              <Text style={[styles.quadrantText, { transform: [{ rotate: '-45deg' }] }]}>
+            {/* 10% */}
+
+            <View
+              style={[
+                styles.quadrant,
+                styles.quadrantBR,
+                {
+                  backgroundColor:
+                    DISCOUNTS[1].color,
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.quadrantText,
+                  {
+                    transform: [
+                      {
+                        rotate:
+                          '-45deg',
+                      },
+                    ],
+                  },
+                ]}
+              >
                 {DISCOUNTS[1].label}
               </Text>
             </View>
 
-            {/* Quadrant 3: Bottom-Left (15% OFF) */}
-            <View style={[styles.quadrant, styles.quadrantBL, { backgroundColor: DISCOUNTS[2].color }]}>
-              <Text style={[styles.quadrantText, { transform: [{ rotate: '45deg' }] }]}>
+            {/* 15% */}
+
+            <View
+              style={[
+                styles.quadrant,
+                styles.quadrantBL,
+                {
+                  backgroundColor:
+                    DISCOUNTS[2].color,
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.quadrantText,
+                  {
+                    transform: [
+                      {
+                        rotate:
+                          '45deg',
+                      },
+                    ],
+                  },
+                ]}
+              >
                 {DISCOUNTS[2].label}
               </Text>
             </View>
 
-            {/* Quadrant 4: Top-Left (20% OFF) */}
-            <View style={[styles.quadrant, styles.quadrantTL, { backgroundColor: DISCOUNTS[3].color }]}>
-              <Text style={[styles.quadrantText, { transform: [{ rotate: '-45deg' }] }]}>
+            {/* 20% */}
+
+            <View
+              style={[
+                styles.quadrant,
+                styles.quadrantTL,
+                {
+                  backgroundColor:
+                    DISCOUNTS[3].color,
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.quadrantText,
+                  {
+                    transform: [
+                      {
+                        rotate:
+                          '-45deg',
+                      },
+                    ],
+                  },
+                ]}
+              >
                 {DISCOUNTS[3].label}
               </Text>
             </View>
 
-            {/* Cross Lines Separating Slices */}
-            <View style={styles.verticalLine} />
-            <View style={styles.horizontalLine} />
+            <View
+              style={styles.verticalLine}
+            />
+
+            <View
+              style={styles.horizontalLine}
+            />
           </Animated.View>
 
-          {/* Wheel Center Cap */}
-          <View style={styles.wheelCenterCap}>
-            <Text style={styles.centerCapEmoji}>🎁</Text>
+          <View
+            style={styles.wheelCenterCap}
+          >
+            <Text
+              style={
+                styles.centerCapEmoji
+              }
+            >
+              🎁
+            </Text>
           </View>
         </View>
 
-        {/* Dynamic Result Card */}
+        {/* Result */}
+
         {wonDiscount ? (
-          <View style={[styles.resultCard, { borderColor: wonDiscount.color }]}>
-            <Text style={[styles.resultBadgeText, { color: wonDiscount.color }]}>
-              🎉 {wonDiscount.label} UNLOCKED!
+          <View
+            style={[
+              styles.resultCard,
+              {
+                borderColor:
+                  wonDiscount.color,
+              },
+            ]}
+          >
+            <Text
+              style={[
+                styles.resultBadgeText,
+                {
+                  color:
+                    wonDiscount.color,
+                },
+              ]}
+            >
+              🎉 {wonDiscount.label}{' '}
+              UNLOCKED!
             </Text>
-            <Text style={styles.resultMessage}>{wonDiscount.message}</Text>
-            <View style={styles.codeContainer}>
-              <Text style={styles.codeLabel}>Promo Code:</Text>
-              <Text style={styles.codeValue}>{wonDiscount.code}</Text>
+
+            <Text
+              style={styles.resultMessage}
+            >
+              {wonDiscount.message}
+            </Text>
+
+            <View
+              style={
+                styles.codeContainer
+              }
+            >
+              <Text
+                style={styles.codeLabel}
+              >
+                Promo Code:
+              </Text>
+
+              <Text
+                style={styles.codeValue}
+              >
+                {wonDiscount.code}
+              </Text>
             </View>
           </View>
         ) : (
           <Text style={styles.hint}>
-            Spin the wheel to get a random discount between 5% and 20%.
+            Your attendance has been
+            approved.
+            {'\n'}
+            Spin the wheel to get your
+            reward.
           </Text>
         )}
 
-        {/* Single-Use Spin Button */}
+        {/* Spin Button */}
+
         <TouchableOpacity
           style={[
             styles.spinButton,
-            (spinning || wonDiscount !== null) && styles.spinButtonDisabled,
+            (spinning ||
+              wonDiscount !== null) &&
+              styles.spinButtonDisabled,
           ]}
           onPress={spinWheel}
-          disabled={spinning || wonDiscount !== null}
+          disabled={
+            spinning ||
+            wonDiscount !== null
+          }
           activeOpacity={0.8}
         >
-          <Text style={styles.spinButtonText}>
+          <Text
+            style={styles.spinButtonText}
+          >
             {spinning
               ? 'SPINNING...'
               : wonDiscount
-              ? 'SPIN COMPLETED'
-              : 'SPIN WHEEL'}
+                ? 'SPIN COMPLETED'
+                : 'SPIN WHEEL'}
           </Text>
         </TouchableOpacity>
 
-        {wonDiscount && (
+        {/* Claim */}
+
+        {wonDiscount ? (
           <TouchableOpacity
-            style={styles.resultRouteButton}
-            onPress={() => router.push('/(sales)/spin/result')}
+            style={
+              styles.resultRouteButton
+            }
+            onPress={() =>
+              router.push(
+                '/(sales)/spin/result'
+              )
+            }
+            activeOpacity={0.8}
           >
-            <Text style={styles.resultRouteButtonText}>CLAIM REWARD ›</Text>
+            <Text
+              style={
+                styles.resultRouteButtonText
+              }
+            >
+              CLAIM REWARD ›
+            </Text>
           </TouchableOpacity>
-        )}
+        ) : null}
       </View>
     </ScreenContainer>
   );
@@ -193,6 +649,185 @@ export default function SpinScreen() {
 const WHEEL_SIZE = 220;
 
 const styles = StyleSheet.create({
+  /* LOCKED */
+
+  lockedCard: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#ffffff',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    padding: 28,
+  },
+
+  lockedEmoji: {
+    fontSize: 52,
+    marginBottom: 18,
+  },
+
+  lockedTitle: {
+    fontSize: 22,
+    fontWeight: '900',
+    color: '#111827',
+    textAlign: 'center',
+    marginBottom: 10,
+  },
+
+  lockedText: {
+    fontSize: 14,
+    color: '#64748b',
+    lineHeight: 21,
+    textAlign: 'center',
+    marginBottom: 18,
+  },
+
+  statusBoxPending: {
+    width: '100%',
+    backgroundColor: '#fffbeb',
+    borderWidth: 1,
+    borderColor: '#fde68a',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 14,
+  },
+
+  statusTitlePending: {
+    color: '#b45309',
+    fontSize: 14,
+    fontWeight: '800',
+    textAlign: 'center',
+    marginBottom: 4,
+  },
+
+  statusTextPending: {
+    color: '#92400e',
+    fontSize: 12,
+    lineHeight: 18,
+    textAlign: 'center',
+  },
+
+  statusBoxRejected: {
+    width: '100%',
+    backgroundColor: '#fef2f2',
+    borderWidth: 1,
+    borderColor: '#fecaca',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 14,
+  },
+
+  statusTitleRejected: {
+    color: '#dc2626',
+    fontSize: 14,
+    fontWeight: '800',
+    textAlign: 'center',
+    marginBottom: 4,
+  },
+
+  statusTextRejected: {
+    color: '#991b1b',
+    fontSize: 12,
+    lineHeight: 18,
+    textAlign: 'center',
+  },
+
+  statusBoxInfo: {
+    width: '100%',
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 14,
+  },
+
+  statusTitleInfo: {
+    color: '#334155',
+    fontSize: 14,
+    fontWeight: '800',
+    textAlign: 'center',
+    marginBottom: 4,
+  },
+
+  statusTextInfo: {
+    color: '#64748b',
+    fontSize: 12,
+    lineHeight: 18,
+    textAlign: 'center',
+  },
+
+  attendanceButton: {
+    width: '100%',
+    backgroundColor: '#111827',
+    paddingVertical: 15,
+    borderRadius: 30,
+    alignItems: 'center',
+    marginTop: 8,
+  },
+
+  attendanceButtonText: {
+    color: '#ffffff',
+    fontWeight: '900',
+    fontSize: 14,
+    letterSpacing: 0.5,
+  },
+
+  /* COMPLETED */
+
+  completedCard: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#f0fdf4',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#bbf7d0',
+    padding: 28,
+  },
+
+  completedEmoji: {
+    fontSize: 55,
+    marginBottom: 16,
+  },
+
+  completedTitle: {
+    fontSize: 22,
+    fontWeight: '900',
+    color: '#166534',
+    textAlign: 'center',
+    marginBottom: 10,
+  },
+
+  completedText: {
+    fontSize: 14,
+    color: '#64748b',
+    lineHeight: 21,
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+
+  completedStore: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#15803d',
+    marginBottom: 20,
+  },
+
+  backButton: {
+    marginTop: 14,
+    paddingVertical: 10,
+  },
+
+  backButtonText: {
+    color: '#64748b',
+    fontWeight: '700',
+    fontSize: 13,
+  },
+
+  /* WHEEL */
+
   wheelCard: {
     flex: 1,
     alignItems: 'center',
@@ -204,14 +839,41 @@ const styles = StyleSheet.create({
     borderColor: '#e2e8f0',
     padding: 20,
   },
+
+  approvedBadge: {
+    backgroundColor: '#dcfce7',
+    borderWidth: 1,
+    borderColor: '#bbf7d0',
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    marginBottom: 5,
+  },
+
+  approvedBadgeText: {
+    color: '#15803d',
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
+
+  storeText: {
+    fontSize: 12,
+    color: '#64748b',
+    fontWeight: '700',
+    marginBottom: 5,
+  },
+
   pointerContainer: {
     zIndex: 20,
     marginBottom: -12,
   },
+
   pointerIcon: {
     fontSize: 26,
     color: '#0f172a',
   },
+
   wheelWrapper: {
     width: WHEEL_SIZE,
     height: WHEEL_SIZE,
@@ -219,17 +881,18 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginVertical: 10,
   },
+
   wheelContainer: {
     width: WHEEL_SIZE,
     height: WHEEL_SIZE,
-    borderRadius: WHEEL_SIZE / 2,
+    borderRadius:
+      WHEEL_SIZE / 2,
     overflow: 'hidden',
     position: 'relative',
     borderWidth: 4,
     borderColor: '#0f172a',
   },
 
-  /* Quadrant Slice Styles */
   quadrant: {
     position: 'absolute',
     width: WHEEL_SIZE / 2,
@@ -237,49 +900,55 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+
   quadrantTR: {
     top: 0,
     right: 0,
   },
+
   quadrantBR: {
     bottom: 0,
     right: 0,
   },
+
   quadrantBL: {
     bottom: 0,
     left: 0,
   },
+
   quadrantTL: {
     top: 0,
     left: 0,
   },
+
   quadrantText: {
     color: '#ffffff',
     fontWeight: '900',
     fontSize: 13,
   },
 
-  /* Clean Divider Lines */
   verticalLine: {
     position: 'absolute',
     top: 0,
     bottom: 0,
-    left: WHEEL_SIZE / 2 - 1.5,
+    left:
+      WHEEL_SIZE / 2 - 1.5,
     width: 3,
     backgroundColor: '#ffffff',
     zIndex: 10,
   },
+
   horizontalLine: {
     position: 'absolute',
     left: 0,
     right: 0,
-    top: WHEEL_SIZE / 2 - 1.5,
+    top:
+      WHEEL_SIZE / 2 - 1.5,
     height: 3,
     backgroundColor: '#ffffff',
     zIndex: 10,
   },
 
-  /* Wheel Center Cap */
   wheelCenterCap: {
     position: 'absolute',
     width: 52,
@@ -292,11 +961,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     zIndex: 15,
   },
+
   centerCapEmoji: {
     fontSize: 20,
   },
 
-  /* Hints and Results */
+  /* RESULT */
+
   hint: {
     textAlign: 'center',
     color: '#64748b',
@@ -304,6 +975,7 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     marginVertical: 12,
   },
+
   resultCard: {
     backgroundColor: '#f8fafc',
     borderWidth: 2,
@@ -313,17 +985,20 @@ const styles = StyleSheet.create({
     width: '100%',
     alignItems: 'center',
   },
+
   resultBadgeText: {
     fontSize: 16,
     fontWeight: '900',
     marginBottom: 4,
   },
+
   resultMessage: {
     fontSize: 12,
     color: '#475569',
     textAlign: 'center',
     marginBottom: 8,
   },
+
   codeContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -333,16 +1008,21 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     gap: 6,
   },
+
   codeLabel: {
     fontSize: 11,
     color: '#64748b',
   },
+
   codeValue: {
     fontSize: 12,
     fontWeight: '800',
     color: '#0f172a',
     letterSpacing: 1,
   },
+
+  /* BUTTON */
+
   spinButton: {
     backgroundColor: '#111827',
     paddingVertical: 14,
@@ -352,19 +1032,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 8,
   },
+
   spinButtonDisabled: {
     backgroundColor: '#94a3b8',
   },
+
   spinButtonText: {
     color: '#ffffff',
     fontWeight: '800',
     fontSize: 14,
     letterSpacing: 0.5,
   },
+
   resultRouteButton: {
     marginTop: 12,
     paddingVertical: 6,
   },
+
   resultRouteButtonText: {
     fontSize: 12,
     fontWeight: '700',

@@ -396,3 +396,160 @@ export async function getAttendancePhotoUrl(
 
   return data.signedUrl;
 }
+/**
+ * APPEND-ONLY: add these to the bottom of src/services/attendanceService.ts
+ * Nothing existing in that file needs to change.
+ *
+ * Also add this import at the top of attendanceService.ts, alongside the
+ * existing type import:
+ *   import type {
+ *     Attendance,
+ *     SubmitAttendancePayload,
+ *     SubmitAttendanceResult,
+ *     AdminAttendanceRecord,   <-- add this line
+ *     AttendanceStatus,        <-- add this line
+ *   } from '@/src/types';
+ */
+
+/**
+ * Admin-only: fetch all attendance records, optionally filtered by status,
+ * enriched with the sales rep's name and the store's name for display.
+ *
+ * Relies on RLS already permitting admins (is_admin()) to SELECT from
+ * `sales` and `stores` — same trust boundary the rest of the app uses.
+ */
+export async function getAllAttendance(
+  status?: AttendanceStatus
+): Promise<AdminAttendanceRecord[]> {
+  let query = supabase
+    .from('attendance')
+    .select('*')
+    .order('created_at', { ascending: false });
+
+  if (status) {
+    query = query.eq('status', status);
+  }
+
+  const { data: attendanceRows, error } = await query;
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  if (!attendanceRows || attendanceRows.length === 0) {
+    return [];
+  }
+
+  const salesIds = [...new Set(attendanceRows.map((a) => a.sales_id))];
+  const storeIds = [...new Set(attendanceRows.map((a) => a.store_id))];
+
+  const [{ data: salesRows }, { data: storeRows }] = await Promise.all([
+    supabase.from('sales').select('id, name').in('id', salesIds),
+    supabase.from('stores').select('id, name').in('id', storeIds),
+  ]);
+
+  const salesMap = new Map((salesRows ?? []).map((s) => [s.id, s.name]));
+  const storeMap = new Map((storeRows ?? []).map((s) => [s.id, s.name]));
+
+  return attendanceRows.map((a) => ({
+    ...a,
+    salesName: salesMap.get(a.sales_id) ?? 'Unknown',
+    storeName: storeMap.get(a.store_id) ?? 'Unknown',
+  }));
+}
+
+/**
+ * Admin-only: approve a pending attendance record.
+ *
+ * NOTE: there is no `approve_attendance` RPC in the current schema, so this
+ * goes through a direct table update. This ONLY works if RLS already grants
+ * admins (is_admin()) UPDATE on the `attendance` table — check
+ * 002_rls_policies.sql. If that policy doesn't exist yet, this call will
+ * appear to succeed (no error) but silently update 0 rows, per Postgres RLS
+ * behavior on UPDATE.
+ */
+export async function approveAttendance(attendanceId: string): Promise<void> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    throw new Error('Not authenticated');
+  }
+
+  const { error, count } = await supabase
+    .from('attendance')
+    .update({ status: 'approved', rejection_reason: null })
+    .eq('id', attendanceId)
+    .select('id', { count: 'exact' });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  if (!count) {
+    throw new Error(
+      'No rows updated — check that RLS permits admin updates on attendance.'
+    );
+  }
+
+  const { error: auditError } = await supabase.from('audit_logs').insert({
+    sales_id: user.id,
+    action: 'ATTENDANCE_APPROVED',
+    metadata: { attendance_id: attendanceId },
+  });
+
+  if (auditError) {
+    // Don't fail the whole approval over a logging error — surface it,
+    // but the approval itself already succeeded.
+    console.warn('Audit log write failed:', auditError.message);
+  }
+}
+
+/**
+ * Admin-only: reject a pending attendance record with a reason.
+ * Same RLS dependency as approveAttendance above.
+ */
+export async function rejectAttendance(
+  attendanceId: string,
+  reason: string
+): Promise<void> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    throw new Error('Not authenticated');
+  }
+
+  const trimmedReason = reason.trim();
+  if (!trimmedReason) {
+    throw new Error('A rejection reason is required.');
+  }
+
+  const { error, count } = await supabase
+    .from('attendance')
+    .update({ status: 'rejected', rejection_reason: trimmedReason })
+    .eq('id', attendanceId)
+    .select('id', { count: 'exact' });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  if (!count) {
+    throw new Error(
+      'No rows updated — check that RLS permits admin updates on attendance.'
+    );
+  }
+
+  const { error: auditError } = await supabase.from('audit_logs').insert({
+    sales_id: user.id,
+    action: 'ATTENDANCE_REJECTED',
+    metadata: { attendance_id: attendanceId, reason: trimmedReason },
+  });
+
+  if (auditError) {
+    console.warn('Audit log write failed:', auditError.message);
+  }
+}
