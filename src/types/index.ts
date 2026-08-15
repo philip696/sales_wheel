@@ -9,12 +9,23 @@ export type AuditAction =
   | 'ATTENDANCE_STARTED'
   | 'GPS_REJECTED'
   | 'CAMERA_CAPTURED'
+  | 'FACE_NOT_DETECTED'
+  | 'FACE_DETECTED'
   | 'ATTENDANCE_SUBMITTED'
   | 'ATTENDANCE_APPROVED'
   | 'ATTENDANCE_REJECTED'
   | 'SPIN_STARTED'
   | 'SPIN_REJECTED'
   | 'SPIN_COMPLETED';
+  /**
+   * FUTURE (face matcher phase — not implemented yet):
+   *   | 'FACE_MATCH_SUCCESS'
+   *   | 'FACE_MATCH_FAILED'
+   *   | 'FACE_REFERENCE_ENROLLED'
+   * Add these once verifyFace() in faceDetectionService.ts is implemented
+   * and sales.reference_photo_path exists (see the draft migration in
+   * supabase/migrations/006_face_verification_draft.sql).
+   */
 
 export interface Sales {
   id: string;

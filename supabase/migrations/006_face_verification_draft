@@ -1,0 +1,61 @@
+-- ============================================================
+-- DRAFT — face verification (matching) schema
+-- ============================================================
+--
+-- NOT ACTIVE. Everything below is commented out on purpose.
+--
+-- This sketches the schema that would be needed for the face
+-- *matching* phase described in:
+--   - src/services/faceDetectionService.ts (verifyFace, commented)
+--   - face-service/app.py (/verify-faces, commented)
+--
+-- Today's attendance camera flow (app/(sales)/attendance/camera.tsx)
+-- only checks that a captured photo contains *a* face
+-- (supabase/migrations 001-005 already cover everything that phase
+-- needs — no new tables/columns required for detection-only).
+--
+-- Matching a photo to a specific enrolled sales rep needs a
+-- reference photo to compare against, hence the additions sketched
+-- here. Nothing in this file has been reviewed against RLS policy
+-- conventions in 002_rls_policies.sql yet — treat it as a starting
+-- point, not something to run as-is.
+--
+-- To activate: uncomment, review against the current schema (sales
+-- table shape may have moved on since this was written), add RLS
+-- policies mirroring attendance-photos in 002/003, then rename this
+-- file with the next real migration number.
+-- ============================================================
+
+-- -- Where each sales rep's reference face photo lives, so the
+-- -- verify-faces endpoint has something to compare against.
+-- -- Mirrors how attendance photos are stored — see
+-- -- ATTENDANCE_PHOTOS_BUCKET in src/services/attendanceService.ts.
+-- alter table sales
+--   add column reference_photo_path text,
+--   add column reference_photo_uploaded_at timestamptz;
+--
+-- -- Private bucket, same shape as attendance-photos in
+-- -- 003_storage_and_functions.sql.
+-- insert into storage.buckets (id, name, public)
+-- values ('reference-photos', 'reference-photos', false)
+-- on conflict (id) do nothing;
+--
+-- -- Log of verification attempts, separate from audit_logs so this
+-- -- can carry structured verification fields (distance/threshold)
+-- -- without overloading audit_logs.metadata. One row per attempt,
+-- -- successful or not — useful for reviewing false rejects.
+-- create table face_verification_attempts (
+--   id uuid primary key default gen_random_uuid(),
+--   sales_id uuid not null references sales(id),
+--   attendance_id uuid references attendance(id),
+--   verified boolean not null,
+--   distance numeric,
+--   threshold numeric,
+--   model text,
+--   created_at timestamptz not null default now()
+-- );
+--
+-- -- RLS: sales can insert their own attempts; admins can read all.
+-- -- Follow the same is_admin() pattern used throughout
+-- -- 002_rls_policies.sql rather than re-deriving it here.
+-- alter table face_verification_attempts enable row level security;

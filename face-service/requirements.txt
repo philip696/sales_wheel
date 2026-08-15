@@ -1,0 +1,6 @@
+fastapi
+uvicorn[standard]
+pydantic
+deepface
+opencv-python-headless
+tf-keras

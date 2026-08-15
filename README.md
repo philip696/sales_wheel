@@ -501,8 +501,94 @@ The camera flow is:
 1. Request camera permission.
 2. Open the back camera.
 3. Capture a fresh photo.
-4. Save the local URI into `AttendanceFlowContext`.
-5. Navigate to the preview screen.
+4. Send the photo for face detection (see **Face Verification** below).
+5. If no face is detected, show the reason and let the user retake — repeat from step 3.
+6. Once a face is detected, save the local URI into `AttendanceFlowContext`.
+7. Navigate to the preview screen.
+
+---
+
+# Face Verification
+
+Face checking on the captured attendance photo happens in two phases. Only the first is implemented today.
+
+## Phase 1 — Face Detection (Implemented)
+
+Before a captured photo is accepted, [`app/(sales)/attendance/camera.tsx`](app/%28sales%29/attendance/camera.tsx) confirms the photo actually contains a face. This is a detection check only — it does not confirm *whose* face it is.
+
+The detection call is made from:
+
+```text
+src/services/faceDetectionService.ts
+```
+
+which sends the photo to a small standalone service:
+
+```text
+face-service/app.py
+```
+
+`face-service` is a separate Python process (FastAPI + DeepFace/RetinaFace) — it is not part of the Expo app and does not get bundled into the mobile build. It exists because DeepFace is a Python/TensorFlow library and cannot run inside React Native.
+
+### What to Do — Steps
+
+1. Install and run the detection service:
+
+   ```bash
+   cd face-service
+   pip install -r requirements.txt
+   uvicorn app:app --reload --host 0.0.0.0 --port 8000
+   ```
+
+2. Point the app at it by setting, in `.env`:
+
+   ```text
+   EXPO_PUBLIC_FACE_API_URL=http://<your-machine-ip>:8000
+   ```
+
+   Use your machine's LAN IP rather than `localhost` when testing on a physical device.
+
+3. On the camera screen, capture a photo as normal.
+4. If no face is detected, the app shows the reason and returns control to the shutter button — capture again.
+5. Once a face is detected, the flow proceeds to the preview screen as usual.
+
+### Important Security Note
+
+Like GPS verification, this check exists for user experience — fail fast, let the user retake immediately — not as the final authority. It only answers "is there a face in this photo," not "is attendance valid."
+
+## Phase 2 — Face Matching Against the Database (Not Yet Implemented)
+
+Confirming the photo belongs to the *enrolled* sales rep, rather than just containing *a* face, is scaffolded but not wired up.
+
+This requires comparing the captured photo against a reference photo stored for that sales rep, which does not exist in the schema yet. The draft is in:
+
+```text
+supabase/migrations/006_face_verification_draft.sql
+```
+
+everything in that file is commented out — it is a sketch, not an active migration.
+
+### What to Do — Steps (Future Work)
+
+1. Review and uncomment `supabase/migrations/006_face_verification_draft.sql`, adding RLS policies consistent with `002_rls_policies.sql`, then apply it. This adds:
+
+   * `sales.reference_photo_path` — where each rep's enrolled reference photo lives in Storage.
+   * a private `reference-photos` bucket, mirroring `attendance-photos`.
+   * a `face_verification_attempts` table to log match attempts (distance, threshold, model, result).
+
+2. Build an enrollment step (e.g. at sign-up, or an admin-triggered flow) that captures a rep's reference photo once and uploads it to the `reference-photos` bucket, saving the path to `sales.reference_photo_path`.
+
+3. Implement the commented-out `/verify-faces` endpoint in `face-service/app.py`. It is a direct port of `DeepFace.verify(...)` from the original face-matching script this project's detection logic was based on — it fetches the rep's reference photo server-side and compares it against the newly captured photo.
+
+4. Implement the commented-out `verifyFace()` function in `src/services/faceDetectionService.ts` to call that endpoint.
+
+5. Call `verifyFace()` from [`app/(sales)/attendance/preview.tsx`](app/%28sales%29/attendance/preview.tsx), before `submitAttendance()` runs — there is a comment marking the exact spot. Reject or warn before upload, the same "fail fast" shape as Phase 1.
+
+6. Add `FACE_MATCH_SUCCESS` / `FACE_MATCH_FAILED` audit actions (placeholder noted in `src/types/index.ts`) so match attempts show up in the existing audit log alongside `FACE_DETECTED` / `FACE_NOT_DETECTED`.
+
+### Important Security Rule
+
+As with GPS and attendance approval, matching must be authoritative on the backend. The mobile app should never be the one deciding whether a face matches — it only submits the comparison request and displays the server's result.
 
 ---
 
@@ -984,10 +1070,12 @@ row.
 | `src/services/spinService.ts`                       | Spin RPC calls and spin history                    |
 | `src/services/auditService.ts`                      | Audit event logging                                |
 | `src/services/deviceService.ts`                     | Device registration and secure device ID           |
+| `src/services/faceDetectionService.ts`              | Face detection call + face-matching stub (future)  |
 | `src/lib/supabase.ts`                               | Supabase client setup, auth storage, fetch wrapper |
-| `src/lib/config.ts`                                 | App-wide Supabase configuration                    |
+| `src/lib/config.ts`                                 | App-wide Supabase and face-service configuration   |
 | `src/types/database.ts`                             | Typed Supabase database contract                   |
 | `supabase/migrations/*.sql`                         | Schema, RLS, storage, triggers, RPC functions      |
+| `face-service/app.py`                               | Standalone face detection service (+ matching stub)|
 
 ---
 
@@ -1053,10 +1141,19 @@ src/lib/config.ts
 src/lib/supabase.ts
 ```
 
+Face detection service configuration is also handled through `src/lib/config.ts`, via:
+
+```text
+EXPO_PUBLIC_FACE_API_URL
+```
+
+See **Face Verification** above for how to run and point the app at that service.
+
 Before deploying to another environment, verify:
 
 * Supabase project URL,
 * Supabase public/anonymous key,
+* face-service URL,
 * environment-specific configuration,
 * database migrations,
 * storage configuration,
@@ -1160,6 +1257,7 @@ React Native Safe Area Context
 * Store search and selection
 * GPS radius verification prototype
 * Camera-only photo capture
+* Face detection retry gate (capture is rejected and retried until a face is found)
 * Device registration
 * Audit logging
 * Database schema
@@ -1179,6 +1277,8 @@ React Native Safe Area Context
 * Spin history screen
 * Admin CRUD screens
 * Admin monitoring screens
+* Face matching against a sales rep's enrolled reference photo (database comparison)
+* Reference photo enrollment flow
 
 ---
 
@@ -1375,6 +1475,8 @@ The current migration structure includes:
 
 When setting up a new Supabase environment, ensure the migrations are applied in order.
 
+`006_face_verification_draft.sql` also exists in this folder but is **not** part of the applied migration order — every statement in it is commented out. It is a draft schema for future face-matching support (see **Face Verification** above) and should be reviewed and uncommented deliberately, not run automatically.
+
 ---
 
 # Key Business Rules
@@ -1517,6 +1619,7 @@ sales-spin-app-v2/
 │   │   ├── auditService.ts
 │   │   ├── attendanceService.ts
 │   │   ├── deviceService.ts
+│   │   ├── faceDetectionService.ts
 │   │   ├── spinService.ts
 │   │   └── storeService.ts
 │   │
@@ -1532,7 +1635,13 @@ sales-spin-app-v2/
 │       ├── 001_initial_schema.sql
 │       ├── 002_rls_policies.sql
 │       ├── 003_storage_and_functions.sql
-│       └── 004_username_signup.sql
+│       ├── 004_username_signup.sql
+│       └── 006_face_verification_draft.sql   (draft, not applied — see Face Verification)
+│
+├── face-service/
+│   ├── app.py
+│   ├── requirements.txt
+│   └── README.md
 │
 ├── package.json
 ├── package-lock.json

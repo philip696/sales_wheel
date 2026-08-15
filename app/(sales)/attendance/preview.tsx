@@ -106,6 +106,19 @@ export default function AttendancePreviewScreen() {
         new Date().toISOString();
 
       /*
+       * FUTURE WORK: face matching (not implemented yet) would run
+       * here, before submitAttendance() — reject/warn before upload
+       * rather than after. See verifyFace() in
+       * src/services/faceDetectionService.ts.
+       *
+       * const verification = await verifyFace(photoUri, referencePhotoPath);
+       * if (!verification.verified) {
+       *   Alert.alert('Face Mismatch', "This doesn't look like the enrolled sales rep.");
+       *   return;
+       * }
+       */
+
+      /*
        * submitAttendance() handles:
        *
        * 1. Authenticated user lookup
