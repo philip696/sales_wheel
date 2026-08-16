@@ -41,3 +41,7 @@ yarn-error.*
 /ios
 /android
 venv/
+
+venv/
+.venv/
+venv/
