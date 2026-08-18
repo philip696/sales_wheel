@@ -6,10 +6,19 @@ import { logAuditEvent } from '@/src/services/auditService';
 import type { GpsVerificationResult } from '@/src/types';
 import { router } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { Alert, StyleSheet, Text, View } from 'react-native';
+import {
+  Alert,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 
 export default function AttendanceGpsScreen() {
-  const { selectedStore } = useAttendanceFlow();
+  const {
+    selectedStore,
+    resetFlow,
+  } = useAttendanceFlow();
 
   const {
     gpsState,
@@ -18,10 +27,15 @@ export default function AttendanceGpsScreen() {
     verifyAgainstStore,
   } = useGpsVerification();
 
-  const [verification, setVerification] =
-    useState<GpsVerificationResult | null>(null);
+  const [
+    verification,
+    setVerification,
+  ] = useState<GpsVerificationResult | null>(
+    null
+  );
 
-  const hasLoggedRejectionRef = useRef(false);
+  const hasLoggedRejectionRef =
+    useRef(false);
 
   /*
    * -------------------------------------------------------
@@ -44,10 +58,6 @@ export default function AttendanceGpsScreen() {
    * -------------------------------------------------------
    * START LIVE GPS MONITORING
    * -------------------------------------------------------
-   *
-   * GPS continues to be monitored internally.
-   *
-   * The coordinates are NOT displayed to the salesperson.
    */
 
   useEffect(() => {
@@ -55,7 +65,8 @@ export default function AttendanceGpsScreen() {
       return;
     }
 
-    hasLoggedRejectionRef.current = false;
+    hasLoggedRejectionRef.current =
+      false;
 
     startWatching();
 
@@ -72,9 +83,6 @@ export default function AttendanceGpsScreen() {
    * -------------------------------------------------------
    * VERIFY GPS AGAINST SELECTED STORE
    * -------------------------------------------------------
-   *
-   * Latitude, longitude and accuracy are still used here.
-   * We are only hiding them from the UI.
    */
 
   useEffect(() => {
@@ -87,12 +95,13 @@ export default function AttendanceGpsScreen() {
       return;
     }
 
-    const result = verifyAgainstStore(
-      selectedStore,
-      gpsState.latitude,
-      gpsState.longitude,
-      gpsState.accuracy
-    );
+    const result =
+      verifyAgainstStore(
+        selectedStore,
+        gpsState.latitude,
+        gpsState.longitude,
+        gpsState.accuracy
+      );
 
     setVerification(result);
   }, [
@@ -105,113 +114,133 @@ export default function AttendanceGpsScreen() {
 
   /*
    * -------------------------------------------------------
-   * CONTINUE TO CAMERA
+   * CANCEL ATTENDANCE
    * -------------------------------------------------------
    *
-   * Flow:
+   * Completely abandons the current visit.
    *
-   * SELECT STORE
-   *      ↓
-   * GPS VERIFICATION
-   *      ↓
-   * FRESH CAMERA PHOTO
-   *
-   * Attendance is NOT submitted from this screen.
+   * This clears:
+   * - selected store
+   * - photo
+   * - attendance result
+   * - order state
+   * - spin state
    */
 
-  const handleProceedToCamera = async () => {
-    /*
-     * No store selected.
-     */
+  const handleCancelAttendance =
+    () => {
+      stopWatching();
+      resetFlow();
 
-    if (!selectedStore) {
-      Alert.alert(
-        'No Store Selected',
-        'Please select a store first.',
-        [
-          {
-            text: 'Select Store',
-            onPress: () =>
-              router.replace('/(sales)/stores'),
-          },
-        ]
-      );
-
-      return;
-    }
-
-    /*
-     * GPS has not been received yet.
-     */
-
-    if (!verification) {
-      Alert.alert(
-        'Waiting for GPS',
-        'Please wait while we get your current location. Make sure location services are enabled.'
-      );
-
-      return;
-    }
-
-    /*
-     * User is outside the store radius.
-     */
-
-    if (!verification.isWithinRadius) {
-      if (
-        !hasLoggedRejectionRef.current
-      ) {
-        hasLoggedRejectionRef.current = true;
-
-        await logAuditEvent({
-          action: 'GPS_REJECTED',
-          storeId: selectedStore.id,
-          metadata: {
-            distance_meters:
-              verification.distanceMeters,
-            radius_meters:
-              selectedStore.radius_meters,
-          },
-        }).catch(() => undefined);
-      }
-
-      Alert.alert(
-        'Location Too Far',
-        `You are ${verification.distanceMeters.toFixed(
-          1
-        )}m from the store.\n\n` +
-          `Maximum allowed distance: ${selectedStore.radius_meters}m.\n\n` +
-          'Move closer to the store and wait for the GPS verification to update.'
-      );
-
-      return;
-    }
-
-    /*
-     * GPS VERIFIED.
-     *
-     * Move to camera screen.
-     *
-     * The camera screen is responsible for:
-     *
-     * 1. Opening the device camera
-     * 2. Taking a fresh photo
-     * 3. Preventing gallery selection
-     * 4. Submitting attendance
-     */
-
-    router.push('/(sales)/attendance/camera');
-  };
+      router.replace('/(sales)');
+    };
 
   /*
    * -------------------------------------------------------
-   * SELECT STORE
+   * CONTINUE TO CAMERA
    * -------------------------------------------------------
    */
 
-  const handleSelectStore = () => {
-    router.replace('/(sales)/stores');
-  };
+  const handleProceedToCamera =
+    async () => {
+      /*
+       * No store selected.
+       */
+      if (!selectedStore) {
+        Alert.alert(
+          'No Store Selected',
+          'Please select a store first.',
+          [
+            {
+              text: 'Select Store',
+              onPress: () =>
+                router.replace(
+                  '/(sales)/stores'
+                ),
+            },
+          ]
+        );
+
+        return;
+      }
+
+      /*
+       * GPS has not been received yet.
+       */
+      if (!verification) {
+        Alert.alert(
+          'Waiting for GPS',
+          'Please wait while we get your current location. Make sure location services are enabled.'
+        );
+
+        return;
+      }
+
+      /*
+       * User is outside the store radius.
+       */
+      if (
+        !verification.isWithinRadius
+      ) {
+        if (
+          !hasLoggedRejectionRef.current
+        ) {
+          hasLoggedRejectionRef.current =
+            true;
+
+          await logAuditEvent({
+            action:
+              'GPS_REJECTED',
+            storeId:
+              selectedStore.id,
+            metadata: {
+              distance_meters:
+                verification.distanceMeters,
+              radius_meters:
+                selectedStore.radius_meters,
+            },
+          }).catch(
+            () => undefined
+          );
+        }
+
+        Alert.alert(
+          'Location Too Far',
+          `You are ${verification.distanceMeters.toFixed(
+            1
+          )}m from the store.\n\n` +
+            `Maximum allowed distance: ${selectedStore.radius_meters}m.\n\n` +
+            'Move closer to the store and wait for the GPS verification to update.'
+        );
+
+        return;
+      }
+
+      /*
+       * GPS VERIFIED
+       *
+       * Continue to camera.
+       */
+
+      router.push(
+        '/(sales)/attendance/camera'
+      );
+    };
+
+  /*
+   * -------------------------------------------------------
+   * CHANGE STORE
+   * -------------------------------------------------------
+   */
+
+  const handleSelectStore =
+    () => {
+      stopWatching();
+
+      router.replace(
+        '/(sales)/stores'
+      );
+    };
 
   return (
     <ScreenContainer
@@ -223,8 +252,38 @@ export default function AttendanceGpsScreen() {
       }
     >
       {/* ===================================================
+          TOP BAR
+      ==================================================== */}
+
+      <View style={styles.topBar}>
+        <View
+          style={styles.topBarSpacer}
+        />
+
+        <Pressable
+          style={({ pressed }) => [
+            styles.cancelButton,
+            pressed &&
+              styles.cancelButtonPressed,
+          ]}
+          onPress={
+            handleCancelAttendance
+          }
+          hitSlop={10}
+        >
+          <Text
+            style={
+              styles.cancelButtonText
+            }
+          >
+            ✕
+          </Text>
+        </Pressable>
+      </View>
+
+      {/* ===================================================
           SELECTED STORE
-      =================================================== */}
+      ==================================================== */}
 
       {selectedStore ? (
         <View style={styles.storeCard}>
@@ -247,7 +306,9 @@ export default function AttendanceGpsScreen() {
             </Text>
 
             {selectedStore.store_code ? (
-              <Text style={styles.storeCode}>
+              <Text
+                style={styles.storeCode}
+              >
                 {selectedStore.store_code}
               </Text>
             ) : null}
@@ -267,7 +328,7 @@ export default function AttendanceGpsScreen() {
 
       {/* ===================================================
           GPS INFORMATION
-      =================================================== */}
+      ==================================================== */}
 
       <View style={styles.infoBox}>
         <View style={styles.watchingRow}>
@@ -279,18 +340,96 @@ export default function AttendanceGpsScreen() {
             ]}
           />
 
-          <Text style={styles.watchingLabel}>
+          <Text
+            style={
+              styles.watchingLabel
+            }
+          >
             {gpsState.isWatching
-              ? 'GPS active — checking your location'
+              ? 'GPS active — updating location'
               : 'GPS not monitoring'}
           </Text>
         </View>
 
-        {/* =================================================
-            VERIFICATION RESULT
+        {/* LATITUDE */}
 
-            Latitude, longitude and GPS accuracy are
-            intentionally NOT displayed.
+        <View style={styles.dataRow}>
+          <Text style={styles.label}>
+            Latitude
+          </Text>
+
+          <Text style={styles.value}>
+            {gpsState.latitude !=
+            null
+              ? gpsState.latitude.toFixed(
+                  6
+                )
+              : 'Waiting...'}
+          </Text>
+        </View>
+
+        {/* LONGITUDE */}
+
+        <View style={styles.dataRow}>
+          <Text style={styles.label}>
+            Longitude
+          </Text>
+
+          <Text style={styles.value}>
+            {gpsState.longitude !=
+            null
+              ? gpsState.longitude.toFixed(
+                  6
+                )
+              : 'Waiting...'}
+          </Text>
+        </View>
+
+        {/* ACCURACY */}
+
+        <View style={styles.dataRow}>
+          <Text style={styles.label}>
+            GPS Accuracy
+          </Text>
+
+          <Text style={styles.value}>
+            {gpsState.accuracy !=
+            null
+              ? `${gpsState.accuracy.toFixed(
+                  1
+                )}m`
+              : 'Waiting...'}
+          </Text>
+        </View>
+
+        {/* LAST UPDATED */}
+
+        {gpsState.lastUpdatedAt ? (
+          <View
+            style={styles.dataRow}
+          >
+            <Text
+              style={styles.label}
+            >
+              Last Updated
+            </Text>
+
+            <Text
+              style={
+                styles.valueSmall
+              }
+            >
+              {new Date(
+                gpsState.lastUpdatedAt
+              ).toLocaleTimeString(
+                'id-ID'
+              )}
+            </Text>
+          </View>
+        ) : null}
+
+        {/* =================================================
+            VERIFICATION
         ================================================== */}
 
         {verification ? (
@@ -302,27 +441,18 @@ export default function AttendanceGpsScreen() {
                 : styles.verificationFailed,
             ]}
           >
-            <View
+            <Text
               style={[
                 styles.verificationIcon,
                 verification.isWithinRadius
-                  ? styles.verificationIconSuccess
-                  : styles.verificationIconFailed,
+                  ? styles.successText
+                  : styles.failedText,
               ]}
             >
-              <Text
-                style={[
-                  styles.verificationIconText,
-                  verification.isWithinRadius
-                    ? styles.successText
-                    : styles.failedText,
-                ]}
-              >
-                {verification.isWithinRadius
-                  ? '✓'
-                  : '✕'}
-              </Text>
-            </View>
+              {verification.isWithinRadius
+                ? '✓'
+                : '✕'}
+            </Text>
 
             <View
               style={
@@ -367,8 +497,20 @@ export default function AttendanceGpsScreen() {
             </View>
           </View>
         ) : (
-          <View style={styles.waitingBox}>
-            <ActivityIndicatorSmall />
+          <View
+            style={styles.waitingBox}
+          >
+            <View
+              style={styles.loadingCircle}
+            >
+              <Text
+                style={
+                  styles.loadingCircleText
+                }
+              >
+                •
+              </Text>
+            </View>
 
             <View>
               <Text
@@ -390,15 +532,21 @@ export default function AttendanceGpsScreen() {
           </View>
         )}
 
-        {/* GPS error */}
+        {/* GPS ERROR */}
 
         {gpsState.error ? (
-          <View style={styles.errorBox}>
-            <Text style={styles.errorIcon}>
+          <View
+            style={styles.errorBox}
+          >
+            <Text
+              style={styles.errorIcon}
+            >
               ⚠️
             </Text>
 
-            <Text style={styles.errorText}>
+            <Text
+              style={styles.errorText}
+            >
               {gpsState.error}
             </Text>
           </View>
@@ -407,25 +555,39 @@ export default function AttendanceGpsScreen() {
 
       {/* ===================================================
           NEXT STEP
-      =================================================== */}
+      ==================================================== */}
 
-      <View style={styles.nextStepCard}>
-        <View style={styles.nextStepIcon}>
-          <Text style={styles.nextStepEmoji}>
+      <View
+        style={styles.nextStepCard}
+      >
+        <View
+          style={styles.nextStepIcon}
+        >
+          <Text
+            style={styles.nextStepEmoji}
+          >
             📷
           </Text>
         </View>
 
-        <View style={styles.nextStepContent}>
-          <Text style={styles.nextStepLabel}>
+        <View
+          style={styles.nextStepContent}
+        >
+          <Text
+            style={styles.nextStepLabel}
+          >
             NEXT STEP
           </Text>
 
-          <Text style={styles.nextStepTitle}>
+          <Text
+            style={styles.nextStepTitle}
+          >
             Take Fresh Attendance Photo
           </Text>
 
-          <Text style={styles.nextStepText}>
+          <Text
+            style={styles.nextStepText}
+          >
             Your camera will open after your
             location is verified.
           </Text>
@@ -433,8 +595,8 @@ export default function AttendanceGpsScreen() {
       </View>
 
       {/* ===================================================
-          CONTINUE BUTTON
-      =================================================== */}
+          CONTINUE
+      ==================================================== */}
 
       <PrimaryButton
         title={
@@ -457,7 +619,7 @@ export default function AttendanceGpsScreen() {
 
       {/* ===================================================
           CHANGE STORE
-      =================================================== */}
+      ==================================================== */}
 
       <PrimaryButton
         title="Change Store"
@@ -465,124 +627,50 @@ export default function AttendanceGpsScreen() {
         onPress={handleSelectStore}
         style={styles.button}
       />
-
-      {/* ===================================================
-          FLOW INDICATOR
-      =================================================== */}
-
-      <View style={styles.flow}>
-        <FlowStep
-          number="1"
-          title="Store"
-          completed={!!selectedStore}
-        />
-
-        <View style={styles.flowLine} />
-
-        <FlowStep
-          number="2"
-          title="GPS"
-          completed={
-            !!verification?.isWithinRadius
-          }
-          active={
-            !verification?.isWithinRadius
-          }
-        />
-
-        <View style={styles.flowLine} />
-
-        <FlowStep
-          number="3"
-          title="Camera"
-          active={
-            !!verification?.isWithinRadius
-          }
-        />
-      </View>
     </ScreenContainer>
   );
 }
 
-/*
- * =========================================================
- * SMALL GPS LOADING INDICATOR
- * =========================================================
- */
-
-function ActivityIndicatorSmall() {
-  return (
-    <View style={styles.loadingCircle}>
-      <Text style={styles.loadingCircleText}>
-        •
-      </Text>
-    </View>
-  );
-}
-
-/*
- * =========================================================
- * FLOW STEP
- * =========================================================
- */
-
-function FlowStep({
-  number,
-  title,
-  completed = false,
-  active = false,
-}: {
-  number: string;
-  title: string;
-  completed?: boolean;
-  active?: boolean;
-}) {
-  return (
-    <View style={styles.flowStep}>
-      <View
-        style={[
-          styles.flowCircle,
-          completed &&
-            styles.flowCircleCompleted,
-          active &&
-            !completed &&
-            styles.flowCircleActive,
-        ]}
-      >
-        <Text
-          style={[
-            styles.flowNumber,
-            (completed || active) &&
-              styles.flowNumberActive,
-          ]}
-        >
-          {completed ? '✓' : number}
-        </Text>
-      </View>
-
-      <Text
-        style={[
-          styles.flowTitle,
-          (completed || active) &&
-            styles.flowTitleActive,
-        ]}
-      >
-        {title}
-      </Text>
-    </View>
-  );
-}
-
-/*
- * =========================================================
- * STYLES
- * =========================================================
- */
-
 const styles = StyleSheet.create({
   /* =========================================================
-   * SELECTED STORE
-   * ========================================================= */
+     TOP BAR
+  ========================================================= */
+
+  topBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+
+  topBarSpacer: {
+    flex: 1,
+  },
+
+  cancelButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: '#f1f5f9',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  cancelButtonPressed: {
+    opacity: 0.6,
+  },
+
+  cancelButtonText: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: '#64748b',
+  },
+
+  /* =========================================================
+     STORE CARD
+  ========================================================= */
 
   storeCard: {
     flexDirection: 'row',
@@ -658,8 +746,8 @@ const styles = StyleSheet.create({
   },
 
   /* =========================================================
-   * GPS INFORMATION
-   * ========================================================= */
+     GPS INFO
+  ========================================================= */
 
   infoBox: {
     backgroundColor: '#f8fafc',
@@ -694,14 +782,43 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
 
+  dataRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 7,
+    borderTopWidth: 1,
+    borderTopColor: '#e2e8f0',
+  },
+
+  label: {
+    fontSize: 10,
+    color: '#64748b',
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+
+  value: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#111827',
+  },
+
+  valueSmall: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#475569',
+  },
+
   /* =========================================================
-   * VERIFICATION
-   * ========================================================= */
+     VERIFICATION
+  ========================================================= */
 
   verificationBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 4,
+    marginTop: 12,
     padding: 13,
     borderRadius: 12,
     borderWidth: 1,
@@ -722,24 +839,11 @@ const styles = StyleSheet.create({
     height: 38,
     borderRadius: 19,
     backgroundColor: '#ffffff',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 11,
-  },
-
-  verificationIconSuccess: {
-    borderWidth: 1,
-    borderColor: '#bbf7d0',
-  },
-
-  verificationIconFailed: {
-    borderWidth: 1,
-    borderColor: '#fecaca',
-  },
-
-  verificationIconText: {
+    textAlign: 'center',
+    textAlignVertical: 'center',
     fontSize: 22,
     fontWeight: '900',
+    marginRight: 11,
   },
 
   verificationContent: {
@@ -772,14 +876,10 @@ const styles = StyleSheet.create({
     color: '#b91c1c',
   },
 
-  /* =========================================================
-   * WAITING
-   * ========================================================= */
-
   waitingBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 4,
+    marginTop: 12,
     padding: 13,
     borderRadius: 12,
     backgroundColor: '#eff6ff',
@@ -815,10 +915,6 @@ const styles = StyleSheet.create({
     color: '#64748b',
   },
 
-  /* =========================================================
-   * ERROR
-   * ========================================================= */
-
   errorBox: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -843,8 +939,8 @@ const styles = StyleSheet.create({
   },
 
   /* =========================================================
-   * NEXT STEP
-   * ========================================================= */
+     NEXT STEP
+  ========================================================= */
 
   nextStepCard: {
     flexDirection: 'row',
@@ -897,76 +993,10 @@ const styles = StyleSheet.create({
   },
 
   /* =========================================================
-   * BUTTON
-   * ========================================================= */
+     BUTTON
+  ========================================================= */
 
   button: {
     marginBottom: 10,
-  },
-
-  /* =========================================================
-   * FLOW INDICATOR
-   * ========================================================= */
-
-  flow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'center',
-    marginTop: 10,
-    paddingVertical: 10,
-  },
-
-  flowStep: {
-    alignItems: 'center',
-    width: 55,
-  },
-
-  flowCircle: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: '#f1f5f9',
-    borderWidth: 1,
-    borderColor: '#cbd5e1',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  flowCircleCompleted: {
-    backgroundColor: '#dcfce7',
-    borderColor: '#86efac',
-  },
-
-  flowCircleActive: {
-    backgroundColor: '#dbeafe',
-    borderColor: '#93c5fd',
-  },
-
-  flowNumber: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#94a3b8',
-  },
-
-  flowNumberActive: {
-    color: '#2563eb',
-  },
-
-  flowTitle: {
-    marginTop: 5,
-    fontSize: 9,
-    fontWeight: '700',
-    color: '#94a3b8',
-  },
-
-  flowTitleActive: {
-    color: '#2563eb',
-  },
-
-  flowLine: {
-    width: 35,
-    height: 1,
-    backgroundColor: '#e2e8f0',
-    marginTop: 15,
   },
 });

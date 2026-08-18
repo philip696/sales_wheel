@@ -24,48 +24,66 @@ export default function StoresScreen() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const loadStores = useCallback(async (searchQuery: string) => {
-    if (!config.isSupabaseConfigured) {
-      setError(
-        'Supabase is not configured. Check your .env file and restart the app.'
-      );
-      return;
-    }
+  /*
+   * ============================================================
+   * LOAD STORES
+   * ============================================================
+   */
 
-    setLoading(true);
-    setError(null);
+  const loadStores = useCallback(
+    async (searchQuery: string) => {
+      if (!config.isSupabaseConfigured) {
+        setError(
+          'Supabase is not configured. Check your .env file and restart the app.'
+        );
+        return;
+      }
 
-    try {
-      const result = await searchStores({
-        query: searchQuery.trim(),
-        page: 1,
-        pageSize: 20,
-      });
+      setLoading(true);
+      setError(null);
 
-      setStores(result.data);
-    } catch (err) {
-      console.error('SALES STORE LOAD ERROR:', err);
+      try {
+        const result = await searchStores({
+          query: searchQuery.trim(),
+          page: 1,
+          pageSize: 20,
+        });
 
-      setError(
-        err instanceof Error
-          ? err.message
-          : 'Failed to load stores'
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+        setStores(result.data);
+      } catch (err) {
+        console.error(
+          'SALES STORE LOAD ERROR:',
+          err
+        );
+
+        setError(
+          err instanceof Error
+            ? err.message
+            : 'Failed to load stores'
+        );
+      } finally {
+        setLoading(false);
+      }
+    },
+    []
+  );
+
+  /*
+   * ============================================================
+   * INITIAL LOAD
+   * ============================================================
+   */
 
   useEffect(() => {
     loadStores('');
   }, [loadStores]);
 
   /*
-   * ---------------------------------------------------------
+   * ============================================================
    * SELECT STORE
-   * ---------------------------------------------------------
+   * ============================================================
    *
-   * This is the beginning of the new sales flow:
+   * Sales flow:
    *
    * Select Store
    *      ↓
@@ -74,16 +92,23 @@ export default function StoresScreen() {
    * Fresh Camera Photo
    *      ↓
    * Submit Attendance
-   *
-   * We only store the selected Store in the existing
-   * AttendanceFlowContext. The actual GPS validation is
-   * handled by the attendance screen/backend.
    */
-  const handleSelectStore = (store: Store) => {
+
+  const handleSelectStore = (
+    store: Store
+  ) => {
     setSelectedStore(store);
 
-    router.push('/(sales)/attendance');
+    router.push(
+      '/(sales)/attendance'
+    );
   };
+
+  /*
+   * ============================================================
+   * SEARCH
+   * ============================================================
+   */
 
   const handleClearSearch = () => {
     setQuery('');
@@ -94,266 +119,411 @@ export default function StoresScreen() {
     loadStores(query);
   };
 
+  /*
+   * ============================================================
+   * RENDER STORE
+   * ============================================================
+   */
+
+  const renderStore = ({
+    item,
+  }: {
+    item: Store;
+  }) => {
+    return (
+      <Pressable
+        style={({ pressed }) => [
+          styles.storeItem,
+          pressed &&
+            styles.storeItemPressed,
+        ]}
+        onPress={() =>
+          handleSelectStore(item)
+        }
+      >
+        {/* STORE ICON */}
+
+        <View style={styles.storeIcon}>
+          <Text style={styles.storeEmoji}>
+            🏪
+          </Text>
+        </View>
+
+        {/* STORE INFORMATION */}
+
+        <View style={styles.storeInfo}>
+          <Text
+            style={styles.storeName}
+            numberOfLines={1}
+          >
+            {item.name}
+          </Text>
+
+          {item.store_code ? (
+            <Text style={styles.storeCode}>
+              {item.store_code}
+            </Text>
+          ) : null}
+
+          {item.address ? (
+            <Text
+              style={styles.storeAddress}
+              numberOfLines={2}
+            >
+              {item.address}
+            </Text>
+          ) : null}
+
+          <View
+            style={
+              styles.verificationBadge
+            }
+          >
+            <Text
+              style={
+                styles.verificationIcon
+              }
+            >
+              📍
+            </Text>
+
+            <Text
+              style={
+                styles.verificationText
+              }
+            >
+              GPS verification required
+            </Text>
+          </View>
+        </View>
+
+        {/* ARROW */}
+
+        <View
+          style={styles.arrowContainer}
+        >
+          <Text style={styles.arrow}>
+            ›
+          </Text>
+        </View>
+      </Pressable>
+    );
+  };
+
+  /*
+   * ============================================================
+   * EMPTY STATE
+   * ============================================================
+   */
+
+  const renderEmpty = () => {
+    if (loading || error) {
+      return null;
+    }
+
+    return (
+      <View style={styles.emptyContainer}>
+        <View style={styles.emptyIcon}>
+          <Text style={styles.emptyEmoji}>
+            🏪
+          </Text>
+        </View>
+
+        <Text style={styles.emptyTitle}>
+          No Stores Found
+        </Text>
+
+        <Text style={styles.emptyText}>
+          {query
+            ? 'Try searching with a different store name or code.'
+            : 'There are currently no active stores available.'}
+        </Text>
+
+        {query ? (
+          <Pressable
+            style={({ pressed }) => [
+              styles.clearSearchButton,
+              pressed &&
+                styles.clearSearchButtonPressed,
+            ]}
+            onPress={handleClearSearch}
+          >
+            <Text
+              style={
+                styles.clearSearchText
+              }
+            >
+              CLEAR SEARCH
+            </Text>
+          </Pressable>
+        ) : null}
+      </View>
+    );
+  };
+
+  /*
+   * ============================================================
+   * FOOTER
+   * ============================================================
+   */
+
+  const renderFooter = () => {
+    if (
+      loading ||
+      error ||
+      stores.length === 0
+    ) {
+      return null;
+    }
+
+    return (
+      <View style={styles.footer}>
+        <View
+          style={
+            styles.footerIconContainer
+          }
+        >
+          <Text style={styles.footerIcon}>
+            📍
+          </Text>
+        </View>
+
+        <View
+          style={styles.footerContent}
+        >
+          <Text
+            style={styles.footerTitle}
+          >
+            Attendance verification
+          </Text>
+
+          <Text
+            style={styles.footerText}
+          >
+            After selecting a store, your
+            location will be verified before
+            you can submit attendance.
+          </Text>
+        </View>
+      </View>
+    );
+  };
+
+  /*
+   * ============================================================
+   * HEADER
+   * ============================================================
+   */
+
+  const renderHeader = () => {
+    return (
+      <>
+        {/* SEARCH */}
+
+        <View
+          style={styles.searchContainer}
+        >
+          <Text style={styles.searchIcon}>
+            🔍
+          </Text>
+
+          <TextInput
+            style={styles.search}
+            placeholder="Search store name or code..."
+            placeholderTextColor="#94a3b8"
+            value={query}
+            onChangeText={setQuery}
+            onSubmitEditing={
+              handleSearch
+            }
+            returnKeyType="search"
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+
+          {query.length > 0 ? (
+            <Pressable
+              onPress={
+                handleClearSearch
+              }
+              hitSlop={8}
+            >
+              <Text style={styles.clear}>
+                ✕
+              </Text>
+            </Pressable>
+          ) : null}
+        </View>
+
+        {/* LIST HEADER */}
+
+        <View
+          style={styles.listHeader}
+        >
+          <View style={styles.headerText}>
+            <Text
+              style={styles.sectionTitle}
+            >
+              AVAILABLE STORES
+            </Text>
+
+            <Text
+              style={
+                styles.sectionSubtitle
+              }
+            >
+              Select a store to start
+              attendance verification.
+            </Text>
+          </View>
+
+          {!loading && !error ? (
+            <View
+              style={
+                styles.storeCountBadge
+              }
+            >
+              <Text
+                style={
+                  styles.storeCount
+                }
+              >
+                {stores.length}
+              </Text>
+            </View>
+          ) : null}
+        </View>
+
+        {/* LOADING */}
+
+        {loading ? (
+          <View
+            style={
+              styles.loadingContainer
+            }
+          >
+            <ActivityIndicator
+              size="large"
+              color="#2563eb"
+            />
+
+            <Text
+              style={
+                styles.loadingText
+              }
+            >
+              Loading stores...
+            </Text>
+          </View>
+        ) : null}
+
+        {/* ERROR */}
+
+        {!loading && error ? (
+          <View
+            style={styles.errorCard}
+          >
+            <View
+              style={
+                styles.errorIconContainer
+              }
+            >
+              <Text
+                style={styles.errorIcon}
+              >
+                ⚠️
+              </Text>
+            </View>
+
+            <Text
+              style={styles.errorTitle}
+            >
+              Unable to load stores
+            </Text>
+
+            <Text
+              style={styles.errorText}
+            >
+              {error}
+            </Text>
+
+            <Pressable
+              style={({ pressed }) => [
+                styles.retryButton,
+                pressed &&
+                  styles.retryButtonPressed,
+              ]}
+              onPress={() =>
+                loadStores(query)
+              }
+            >
+              <Text
+                style={styles.retryText}
+              >
+                TRY AGAIN
+              </Text>
+            </Pressable>
+          </View>
+        ) : null}
+      </>
+    );
+  };
+
+  /*
+   * ============================================================
+   * SCREEN
+   * ============================================================
+   *
+   * IMPORTANT:
+   *
+   * FlatList is now the ONLY vertical scrolling container.
+   */
+
   return (
     <ScreenContainer
       title="Select Store"
       subtitle="Choose the store you are visiting today"
+      scroll={false}
     >
-      {/* =====================================================
-          SEARCH
-      ====================================================== */}
-
-      <View style={styles.searchContainer}>
-        <Text style={styles.searchIcon}>🔍</Text>
-
-        <TextInput
-          style={styles.search}
-          placeholder="Search store name or code..."
-          placeholderTextColor="#94a3b8"
-          value={query}
-          onChangeText={setQuery}
-          onSubmitEditing={handleSearch}
-          returnKeyType="search"
-          autoCapitalize="none"
-          autoCorrect={false}
-        />
-
-        {query.length > 0 ? (
-          <Pressable
-            onPress={handleClearSearch}
-            hitSlop={8}
-          >
-            <Text style={styles.clear}>✕</Text>
-          </Pressable>
-        ) : null}
-      </View>
-
-      {/* =====================================================
-          LIST HEADER
-      ====================================================== */}
-
-      <View style={styles.listHeader}>
-        <View>
-          <Text style={styles.sectionTitle}>
-            AVAILABLE STORES
-          </Text>
-
-          <Text style={styles.sectionSubtitle}>
-            Select a store to start attendance verification.
-          </Text>
-        </View>
-
-        {!loading && !error ? (
-          <View style={styles.storeCountBadge}>
-            <Text style={styles.storeCount}>
-              {stores.length}
-            </Text>
-          </View>
-        ) : null}
-      </View>
-
-      {/* =====================================================
-          LOADING
-      ====================================================== */}
-
-      {loading ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator
-            size="large"
-            color="#2563eb"
-          />
-
-          <Text style={styles.loadingText}>
-            Loading stores...
-          </Text>
-        </View>
-      ) : error ? (
-        /* ===================================================
-           ERROR
-        ==================================================== */
-
-        <View style={styles.errorCard}>
-          <View style={styles.errorIconContainer}>
-            <Text style={styles.errorIcon}>⚠️</Text>
-          </View>
-
-          <Text style={styles.errorTitle}>
-            Unable to load stores
-          </Text>
-
-          <Text style={styles.errorText}>
-            {error}
-          </Text>
-
-          <Pressable
-            style={({ pressed }) => [
-              styles.retryButton,
-              pressed && styles.retryButtonPressed,
-            ]}
-            onPress={() => loadStores(query)}
-          >
-            <Text style={styles.retryText}>
-              TRY AGAIN
-            </Text>
-          </Pressable>
-        </View>
-      ) : (
-        /* ===================================================
-           STORE LIST
-        ==================================================== */
-
-        <FlatList
-          data={stores}
-          keyExtractor={(item) => item.id}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-          contentContainerStyle={
-            stores.length === 0
-              ? styles.emptyList
-              : styles.listContent
-          }
-          renderItem={({ item }) => (
-            <Pressable
-              style={({ pressed }) => [
-                styles.storeItem,
-                pressed && styles.storeItemPressed,
-              ]}
-              onPress={() => handleSelectStore(item)}
-            >
-              {/* Store Icon */}
-
-              <View style={styles.storeIcon}>
-                <Text style={styles.storeEmoji}>
-                  🏪
-                </Text>
-              </View>
-
-              {/* Store Information */}
-
-              <View style={styles.storeInfo}>
-                <Text
-                  style={styles.storeName}
-                  numberOfLines={1}
-                >
-                  {item.name}
-                </Text>
-
-                {item.store_code ? (
-                  <Text style={styles.storeCode}>
-                    {item.store_code}
-                  </Text>
-                ) : null}
-
-                {item.address ? (
-                  <Text
-                    style={styles.storeAddress}
-                    numberOfLines={2}
-                  >
-                    {item.address}
-                  </Text>
-                ) : null}
-
-                {/*
-
-                  Do not display the actual store coordinates.
-
-                  The sales user only needs to know that GPS
-                  verification will happen after selecting
-                  the store.
-
-                */}
-
-                <View style={styles.verificationBadge}>
-                  <Text style={styles.verificationIcon}>
-                    📍
-                  </Text>
-
-                  <Text style={styles.verificationText}>
-                    GPS verification required
-                  </Text>
-                </View>
-              </View>
-
-              {/* Arrow */}
-
-              <View style={styles.arrowContainer}>
-                <Text style={styles.arrow}>
-                  ›
-                </Text>
-              </View>
-            </Pressable>
-          )}
-          ListEmptyComponent={
-            <View style={styles.emptyContainer}>
-              <View style={styles.emptyIcon}>
-                <Text style={styles.emptyEmoji}>
-                  🏪
-                </Text>
-              </View>
-
-              <Text style={styles.emptyTitle}>
-                No Stores Found
-              </Text>
-
-              <Text style={styles.emptyText}>
-                {query
-                  ? 'Try searching with a different store name or code.'
-                  : 'There are currently no active stores available.'}
-              </Text>
-
-              {query ? (
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.clearSearchButton,
-                    pressed &&
-                      styles.clearSearchButtonPressed,
-                  ]}
-                  onPress={handleClearSearch}
-                >
-                  <Text style={styles.clearSearchText}>
-                    CLEAR SEARCH
-                  </Text>
-                </Pressable>
-              ) : null}
-            </View>
-          }
-        />
-      )}
-
-      {/* =====================================================
-          FOOTER
-      ====================================================== */}
-
-      {!loading &&
-      !error &&
-      stores.length > 0 ? (
-        <View style={styles.footer}>
-          <View style={styles.footerIconContainer}>
-            <Text style={styles.footerIcon}>
-              📍
-            </Text>
-          </View>
-
-          <View style={styles.footerContent}>
-            <Text style={styles.footerTitle}>
-              Attendance verification
-            </Text>
-
-            <Text style={styles.footerText}>
-              After selecting a store, your location will be
-              verified before you can submit attendance.
-            </Text>
-          </View>
-        </View>
-      ) : null}
+      <FlatList
+        data={stores}
+        keyExtractor={(item) =>
+          item.id
+        }
+        renderItem={renderStore}
+        ListHeaderComponent={
+          renderHeader
+        }
+        ListEmptyComponent={
+          renderEmpty
+        }
+        ListFooterComponent={
+          renderFooter
+        }
+        showsVerticalScrollIndicator={
+          false
+        }
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={
+          stores.length === 0
+            ? styles.emptyList
+            : styles.listContent
+        }
+      />
     </ScreenContainer>
   );
 }
 
+/*
+ * ============================================================
+ * STYLES
+ * ============================================================
+ */
+
 const styles = StyleSheet.create({
-  /* =========================================================
-     SEARCH
-  ========================================================= */
+  /*
+   * SEARCH
+   */
 
   searchContainer: {
     flexDirection: 'row',
@@ -385,15 +555,20 @@ const styles = StyleSheet.create({
     padding: 4,
   },
 
-  /* =========================================================
-     HEADER
-  ========================================================= */
+  /*
+   * HEADER
+   */
 
   listHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 12,
+  },
+
+  headerText: {
+    flex: 1,
+    marginRight: 10,
   },
 
   sectionTitle: {
@@ -407,6 +582,7 @@ const styles = StyleSheet.create({
     marginTop: 3,
     fontSize: 10,
     color: '#94a3b8',
+    lineHeight: 15,
   },
 
   storeCountBadge: {
@@ -425,12 +601,17 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
 
-  /* =========================================================
-     LIST
-  ========================================================= */
+  /*
+   * LIST
+   */
 
   listContent: {
     paddingBottom: 10,
+  },
+
+  emptyList: {
+    flexGrow: 1,
+    paddingBottom: 20,
   },
 
   storeItem: {
@@ -446,7 +627,11 @@ const styles = StyleSheet.create({
 
   storeItemPressed: {
     opacity: 0.7,
-    transform: [{ scale: 0.99 }],
+    transform: [
+      {
+        scale: 0.99,
+      },
+    ],
   },
 
   storeIcon: {
@@ -489,9 +674,9 @@ const styles = StyleSheet.create({
     marginBottom: 7,
   },
 
-  /* =========================================================
-     GPS VERIFICATION BADGE
-  ========================================================= */
+  /*
+   * GPS BADGE
+   */
 
   verificationBadge: {
     alignSelf: 'flex-start',
@@ -514,9 +699,9 @@ const styles = StyleSheet.create({
     color: '#64748b',
   },
 
-  /* =========================================================
-     ARROW
-  ========================================================= */
+  /*
+   * ARROW
+   */
 
   arrowContainer: {
     marginLeft: 8,
@@ -534,15 +719,15 @@ const styles = StyleSheet.create({
     lineHeight: 25,
   },
 
-  /* =========================================================
-     LOADING
-  ========================================================= */
+  /*
+   * LOADING
+   */
 
   loadingContainer: {
-    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     minHeight: 300,
+    paddingVertical: 30,
   },
 
   loadingText: {
@@ -551,9 +736,9 @@ const styles = StyleSheet.create({
     color: '#94a3b8',
   },
 
-  /* =========================================================
-     ERROR
-  ========================================================= */
+  /*
+   * ERROR
+   */
 
   errorCard: {
     alignItems: 'center',
@@ -584,6 +769,7 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     color: '#991b1b',
     marginBottom: 6,
+    textAlign: 'center',
   },
 
   errorText: {
@@ -612,13 +798,9 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
 
-  /* =========================================================
-     EMPTY
-  ========================================================= */
-
-  emptyList: {
-    flexGrow: 1,
-  },
+  /*
+   * EMPTY
+   */
 
   emptyContainer: {
     alignItems: 'center',
@@ -674,9 +856,9 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
 
-  /* =========================================================
-     FOOTER
-  ========================================================= */
+  /*
+   * FOOTER
+   */
 
   footer: {
     flexDirection: 'row',
