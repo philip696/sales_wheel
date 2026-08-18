@@ -3,6 +3,8 @@ import { ScreenContainer } from '@/src/components/ScreenContainer';
 import { useAttendanceFlow } from '@/src/features/attendance/AttendanceFlowContext';
 import { useGpsVerification } from '@/src/features/gps/useGpsVerification';
 import { submitAttendance } from '@/src/services/attendanceService';
+import { detectFace } from '@/src/services/faceDetectionService';
+import { compressAttendanceImage } from '@/src/services/imageCompressionService';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import {
@@ -27,9 +29,6 @@ export default function AttendancePreviewScreen() {
 
   const [submitting, setSubmitting] = useState(false);
 
-  /*
-   * There is no photo available.
-   */
   if (!photoUri) {
     return (
       <ScreenContainer title="No Photo">
@@ -46,10 +45,6 @@ export default function AttendancePreviewScreen() {
   }
 
   const handleSubmit = async () => {
-    /*
-     * A store must be selected before attendance
-     * can be submitted.
-     */
     if (!selectedStore) {
       Alert.alert(
         'No Store Selected',
@@ -70,7 +65,60 @@ export default function AttendancePreviewScreen() {
 
     try {
       /*
-       * Get a fresh GPS permission state.
+       * ----------------------------------------------------------
+       * 1. Compress the attendance image FIRST.
+       *
+       * This is now the image that will be used for both:
+       * - face detection
+       * - attendance upload
+       * ----------------------------------------------------------
+       */
+      console.log('Compressing attendance image...');
+
+      const compressedImage =
+        await compressAttendanceImage(photoUri);
+
+      console.log(
+        'Attendance image compressed:',
+        {
+          uri: compressedImage.uri,
+          width: compressedImage.width,
+          height: compressedImage.height,
+        }
+      );
+
+      /*
+       * ----------------------------------------------------------
+       * 2. Run face detection against the compressed image.
+       * ----------------------------------------------------------
+       */
+      console.log(
+        'Running face detection on compressed image...'
+      );
+
+      const faceResult = await detectFace(
+        compressedImage.uri
+      );
+
+      console.log(
+        'Face detection result:',
+        faceResult
+      );
+
+      if (!faceResult.hasFace) {
+        Alert.alert(
+          'No Face Detected',
+          faceResult.message ||
+            'Please make sure your face is clearly visible and try again.'
+        );
+
+        return;
+      }
+
+      /*
+       * ----------------------------------------------------------
+       * 3. Face exists, so continue with GPS verification.
+       * ----------------------------------------------------------
        */
       const permitted = await requestPermission();
 
@@ -83,10 +131,6 @@ export default function AttendancePreviewScreen() {
         return;
       }
 
-      /*
-       * Get a fresh GPS position immediately before
-       * submitting the attendance.
-       */
       const reading = await getCurrentPosition();
 
       if (!reading) {
@@ -98,62 +142,56 @@ export default function AttendancePreviewScreen() {
         return;
       }
 
-      /*
-       * Capture the submission timestamp at the point
-       * where the attendance is actually submitted.
-       */
       const clientCapturedAt =
         new Date().toISOString();
 
       /*
-       * FUTURE WORK: face matching (not implemented yet) would run
-       * here, before submitAttendance() — reject/warn before upload
-       * rather than after. See verifyFace() in
-       * src/services/faceDetectionService.ts.
+       * ----------------------------------------------------------
+       * 4. Submit the COMPRESSED image.
        *
-       * const verification = await verifyFace(photoUri, referencePhotoPath);
-       * if (!verification.verified) {
-       *   Alert.alert('Face Mismatch', "This doesn't look like the enrolled sales rep.");
-       *   return;
-       * }
+       * IMPORTANT:
+       * Do NOT pass the original photoUri here.
+       *
+       * Passing compressedImage.uri means attendanceService
+       * receives the already-compressed image and uploads it.
+       * ----------------------------------------------------------
        */
+      console.log(
+        'Submitting compressed attendance image...'
+      );
 
-      /*
-       * submitAttendance() handles:
-       *
-       * 1. Authenticated user lookup
-       * 2. Image compression
-       * 3. Image upload
-       * 4. Database RPC
-       */
       const result = await submitAttendance({
         storeId: selectedStore.id,
         latitude: reading.latitude,
         longitude: reading.longitude,
         gpsAccuracy: reading.accuracy,
         clientCapturedAt,
-        photoUri,
+
+        // THIS IS THE IMPORTANT CHANGE:
+        photoUri: compressedImage.uri,
       });
 
       /*
-       * Save the server result for the result screen.
+       * ----------------------------------------------------------
+       * 5. Save the server result.
+       * ----------------------------------------------------------
        */
       setLastSubmission(result);
 
       /*
-       * Clear the local photo so the user cannot
-       * accidentally submit the same capture twice
-       * through back navigation.
+       * Clear local photo after successful submission.
        */
       setPhotoUri(null);
 
-      /*
-       * Attendance was successfully submitted.
-       */
       router.replace(
         '/(sales)/attendance/result'
       );
     } catch (error) {
+      console.error(
+        'ATTENDANCE SUBMISSION ERROR:',
+        error
+      );
+
       Alert.alert(
         'Submission Failed',
         error instanceof Error
@@ -182,7 +220,7 @@ export default function AttendancePreviewScreen() {
       <PrimaryButton
         title={
           submitting
-            ? 'Submitting...'
+            ? 'Checking & Submitting...'
             : 'Submit Attendance'
         }
         loading={submitting}

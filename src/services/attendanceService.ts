@@ -8,10 +8,24 @@ import type {
 
 const ATTENDANCE_PHOTOS_BUCKET = 'attendance-photos';
 
-function buildPhotoPath(salesId: string, storeId: string): string {
-  return `${salesId}/${storeId}/${Date.now()}.jpg`;
+/**
+ * Build a unique Storage path for an attendance photo.
+ *
+ * We intentionally do not use an attendance ID here because
+ * the database generates the actual attendance ID.
+ */
+function buildPhotoPath(
+  salesId: string,
+  storeId: string
+): string {
+  const timestamp = Date.now();
+
+  return `${salesId}/${storeId}/${timestamp}.jpg`;
 }
 
+/**
+ * Compress and upload an attendance photo.
+ */
 async function uploadAttendancePhoto(
   salesId: string,
   storeId: string,
@@ -21,7 +35,24 @@ async function uploadAttendancePhoto(
     throw new Error('Attendance photo is required');
   }
 
-  const compressedImage = await compressAttendanceImage(photoUri);
+  console.log('Compressing attendance image...');
+
+  const compressedImage = await compressAttendanceImage(
+    photoUri
+  );
+
+  console.log('Attendance image compressed:', {
+    uri: compressedImage.uri,
+    width: compressedImage.width,
+    height: compressedImage.height,
+  });
+
+  /**
+   * Read the local Expo image URI.
+   *
+   * Use ArrayBuffer instead of Blob here because this code
+   * runs in React Native / Expo.
+   */
   const response = await fetch(compressedImage.uri);
 
   if (!response.ok) {
@@ -30,19 +61,61 @@ async function uploadAttendancePhoto(
     );
   }
 
-  const blob = await response.blob();
-  const photoPath = buildPhotoPath(salesId, storeId);
+  const imageBuffer = await response.arrayBuffer();
 
-  const { error: uploadError } = await supabase.storage
-    .from(ATTENDANCE_PHOTOS_BUCKET)
-    .upload(photoPath, blob, {
-      contentType: 'image/jpeg',
-      upsert: false,
-    });
+  if (imageBuffer.byteLength === 0) {
+    throw new Error(
+      'Compressed attendance image is empty'
+    );
+  }
+
+  console.log('Compressed image buffer:', {
+    byteLength: imageBuffer.byteLength,
+  });
+
+  /**
+   * Keep the existing Storage path.
+   *
+   * The first folder is salesId/auth.uid(), which is required
+   * by the attendance-photos Storage RLS policy.
+   */
+  const photoPath = buildPhotoPath(
+    salesId,
+    storeId
+  );
+
+  console.log('Uploading attendance photo:', {
+    bucket: ATTENDANCE_PHOTOS_BUCKET,
+    path: photoPath,
+    size: imageBuffer.byteLength,
+  });
+
+  /**
+   * Upload the actual image bytes to Supabase Storage.
+   */
+  const { error: uploadError } =
+    await supabase.storage
+      .from(ATTENDANCE_PHOTOS_BUCKET)
+      .upload(photoPath, imageBuffer, {
+        contentType: 'image/jpeg',
+        upsert: false,
+      });
 
   if (uploadError) {
-    throw new Error(`Photo upload failed: ${uploadError.message}`);
+    console.error(
+      'ATTENDANCE PHOTO UPLOAD ERROR:',
+      uploadError
+    );
+
+    throw new Error(
+      `Photo upload failed: ${uploadError.message}`
+    );
   }
+
+  console.log(
+    'Attendance photo uploaded successfully:',
+    photoPath
+  );
 
   return photoPath;
 }
@@ -50,9 +123,13 @@ async function uploadAttendancePhoto(
 /**
  * Submit an attendance record.
  *
- * Valid attendance is immediately accepted by the server. There is no
- * client-side or admin approval step. Server validation still protects the
- * attendance boundary (store radius, GPS accuracy and required photo).
+ * Flow:
+ *
+ * 1. Get authenticated Supabase user
+ * 2. Compress the captured image
+ * 3. Upload compressed image to Storage
+ * 4. Call submit_attendance RPC
+ * 5. Remove uploaded photo if the RPC fails
  */
 export async function submitAttendance(
   payload: SubmitAttendancePayload
@@ -80,15 +157,33 @@ export async function submitAttendance(
   }
 
   if (!payload.clientCapturedAt) {
-    throw new Error('Client capture timestamp is required');
+    throw new Error(
+      'Client capture timestamp is required'
+    );
   }
 
+  /*
+   * Get the authenticated Supabase user.
+   *
+   * DO NOT accept salesId/userId from the UI.
+   * The authenticated user is the source of truth.
+   */
   const {
     data: { user },
     error: userError,
   } = await supabase.auth.getUser();
 
+  console.log('AUTH USER:', {
+    id: user?.id,
+    email: user?.email,
+  });
+
   if (userError) {
+    console.error(
+      'AUTH USER ERROR:',
+      userError
+    );
+
     throw new Error(
       `Authentication check failed: ${userError.message}`
     );
@@ -98,69 +193,150 @@ export async function submitAttendance(
     throw new Error('Not authenticated');
   }
 
+  console.log('Submitting attendance:', {
+    userId: user.id,
+    email: user.email,
+    storeId: payload.storeId,
+    latitude: payload.latitude,
+    longitude: payload.longitude,
+    gpsAccuracy: payload.gpsAccuracy,
+    clientCapturedAt: payload.clientCapturedAt,
+  });
+
+  /*
+   * Upload compressed image first.
+   */
   const photoPath = await uploadAttendancePhoto(
     user.id,
     payload.storeId,
     payload.photoUri
   );
 
-  const { data, error } = await supabase.rpc('submit_attendance', {
+  console.log('Calling submit_attendance RPC:', {
     p_store_id: payload.storeId,
     p_latitude: payload.latitude,
     p_longitude: payload.longitude,
     p_gps_accuracy: payload.gpsAccuracy,
-    p_client_captured_at: payload.clientCapturedAt,
+    p_client_captured_at:
+      payload.clientCapturedAt,
     p_photo_path: photoPath,
   });
 
+  /*
+   * The database function gets auth.uid() itself.
+   *
+   * We intentionally do NOT send user.id as a parameter.
+   */
+  const { data, error } = await supabase.rpc(
+    'submit_attendance',
+    {
+      p_store_id: payload.storeId,
+      p_latitude: payload.latitude,
+      p_longitude: payload.longitude,
+      p_gps_accuracy: payload.gpsAccuracy,
+      p_client_captured_at:
+        payload.clientCapturedAt,
+      p_photo_path: photoPath,
+    }
+  );
+
   if (error) {
-    await supabase.storage
+    console.error(
+      'SUBMIT ATTENDANCE RPC ERROR:',
+      {
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+      }
+    );
+
+    /*
+     * The image was uploaded but the attendance
+     * record failed. Remove the orphaned image.
+     */
+    console.log(
+      'Removing orphaned attendance photo:',
+      photoPath
+    );
+
+    const {
+      error: cleanupError,
+    } = await supabase.storage
       .from(ATTENDANCE_PHOTOS_BUCKET)
       .remove([photoPath]);
 
+    if (cleanupError) {
+      console.error(
+        'ATTENDANCE PHOTO CLEANUP ERROR:',
+        cleanupError
+      );
+    }
+
     throw new Error(
       [
-        'Attendance submission failed.',
+        `Attendance submission failed.`,
         `Code: ${error.code ?? 'unknown'}`,
         `Message: ${error.message}`,
-        error.details ? `Details: ${error.details}` : '',
-        error.hint ? `Hint: ${error.hint}` : '',
+        error.details
+          ? `Details: ${error.details}`
+          : '',
+        error.hint
+          ? `Hint: ${error.hint}`
+          : '',
       ]
         .filter(Boolean)
         .join('\n')
     );
   }
 
-  const result = Array.isArray(data) ? data[0] : data;
+  console.log(
+    'submit_attendance RPC response:',
+    data
+  );
+
+  /*
+   * The RPC returns a row containing the result.
+   */
+  const result = Array.isArray(data)
+    ? data[0]
+    : data;
 
   if (!result) {
+    console.error(
+      'submit_attendance returned no result'
+    );
+
+    /*
+     * Clean up the photo because the database
+     * didn't give us a successful attendance result.
+     */
     await supabase.storage
       .from(ATTENDANCE_PHOTOS_BUCKET)
       .remove([photoPath]);
 
-    throw new Error('No attendance result returned from server');
+    throw new Error(
+      'No attendance result returned from server'
+    );
   }
 
-  // The database may reject invalid submissions. Those are submission
-  // failures, not a workflow state that the app should expose or wait on.
-  if (result.rejection_reason) {
-    await supabase.storage
-      .from(ATTENDANCE_PHOTOS_BUCKET)
-      .remove([photoPath]);
+  console.log(
+    'Attendance submitted successfully:',
+    result
+  );
 
-    throw new Error(result.rejection_reason);
-  }
-
-  // A successful attendance submission is always presented as immediately
-  // accepted by the application. No pending/manual approval state exists.
   return {
     attendanceId: result.attendance_id,
-    status: 'approved',
+    status: result.status,
     distanceMeters: result.distance_meters,
-    rejectionReason: null,
+    rejectionReason:
+      result.rejection_reason,
   };
 }
 
+/**
+ * Get the authenticated user's attendance history.
+ */
 export async function getMyAttendanceHistory(
   limit = 20
 ): Promise<Attendance[]> {
@@ -183,16 +359,32 @@ export async function getMyAttendanceHistory(
     .from('attendance')
     .select('*')
     .eq('sales_id', user.id)
-    .order('created_at', { ascending: false })
+    .order('created_at', {
+      ascending: false,
+    })
     .limit(limit);
 
   if (error) {
+    console.error(
+      'GET ATTENDANCE HISTORY ERROR:',
+      {
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+      }
+    );
+
     throw new Error(error.message);
   }
 
   return data ?? [];
 }
 
+/**
+ * Create a temporary signed URL for a private
+ * attendance photo.
+ */
 export async function getAttendancePhotoUrl(
   photoPath: string,
   expiresIn = 60 * 10
@@ -201,11 +393,23 @@ export async function getAttendancePhotoUrl(
     throw new Error('Photo path is required');
   }
 
-  const { data, error } = await supabase.storage
-    .from(ATTENDANCE_PHOTOS_BUCKET)
-    .createSignedUrl(photoPath, expiresIn);
+  const { data, error } =
+    await supabase.storage
+      .from(ATTENDANCE_PHOTOS_BUCKET)
+      .createSignedUrl(
+        photoPath,
+        expiresIn
+      );
 
   if (error) {
+    console.error(
+      'GET ATTENDANCE PHOTO URL ERROR:',
+      {
+        code: error.name,
+        message: error.message,
+      }
+    );
+
     throw new Error(
       `Could not create attendance photo URL: ${error.message}`
     );
