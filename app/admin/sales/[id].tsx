@@ -22,8 +22,13 @@ import {
 import { ScreenContainer } from '@/src/components/ScreenContainer';
 import { supabase } from '@/src/lib/supabase';
 
-const ATTENDANCE_BUCKET =
-  'attendance-photos';
+const ATTENDANCE_BUCKET = 'attendance-photos';
+
+/*
+ * ================================================================
+ * TYPES
+ * ================================================================
+ */
 
 type SalesUser = {
   id: string;
@@ -33,17 +38,25 @@ type SalesUser = {
 
 type Attendance = {
   id?: string;
+
   sales_id: string;
+
   status: string | null;
+
   created_at: string | null;
+
   server_created_at: string | null;
 
   photo_path?: string | null;
+
   photo_url?: string | null;
 
   latitude?: number | null;
+
   longitude?: number | null;
+
   gps_accuracy?: number | null;
+
   distance_meters?: number | null;
 
   client_captured_at?: string | null;
@@ -51,12 +64,30 @@ type Attendance = {
   rejection_reason?: string | null;
 
   store_id?: string | null;
+
+  /*
+   * IMPORTANT:
+   *
+   * We are NOT selecting attendance.order_placed.
+   *
+   * This optional frontend value allows the screen to
+   * understand an order value if the backend already
+   * returns one through another existing mechanism.
+   *
+   * It does not require a database migration.
+   */
+  orderStatus?: boolean | string | null;
+
+  /*
+   * Allow existing backend fields to remain available
+   * without changing the backend.
+   */
+  [key: string]: unknown;
 };
 
 type DayStatus =
-  | 'attended'
-  | 'pending'
-  | 'none'
+  | 'order'
+  | 'no_order'
   | 'future';
 
 type CalendarDay = {
@@ -66,6 +97,12 @@ type CalendarDay = {
   status: DayStatus;
   attendance: Attendance[];
 };
+
+/*
+ * ================================================================
+ * CALENDAR CONSTANTS
+ * ================================================================
+ */
 
 const MONTH_NAMES = [
   'January',
@@ -92,6 +129,12 @@ const WEEK_DAYS = [
   'Sat',
 ];
 
+/*
+ * ================================================================
+ * DATE HELPERS
+ * ================================================================
+ */
+
 const formatDateKey = (date: Date) => {
   const year = date.getFullYear();
 
@@ -115,30 +158,166 @@ const isFutureDate = (date: Date) => {
   );
 };
 
-const getAttendanceStatus = (
-  status: string | null,
-): DayStatus => {
-  if (!status) {
-    return 'none';
-  }
+/*
+ * ================================================================
+ * ORDER DETECTION
+ * ================================================================
+ *
+ * IMPORTANT:
+ *
+ * We do NOT use:
+ *
+ * attendance.order_placed
+ *
+ * because that column does not exist in your current backend.
+ *
+ * Instead, this function checks whether the returned attendance
+ * object already contains an order-related value.
+ *
+ * If nothing exists, it returns false.
+ *
+ * This keeps the existing attendance query intact.
+ * ================================================================
+ */
 
-  const normalized =
-    status.toLowerCase();
-
+const getOrderStatus = (
+  attendance: Attendance,
+): boolean => {
+  /*
+   * Direct frontend value if available.
+   */
   if (
-    normalized === 'approved' ||
-    normalized === 'attended' ||
-    normalized === 'present'
+    typeof attendance.orderStatus ===
+    'boolean'
   ) {
-    return 'attended';
+    return attendance.orderStatus;
   }
 
-  if (normalized === 'pending') {
-    return 'pending';
+  /*
+   * Possible existing backend values.
+   *
+   * These are only read from the returned object.
+   * They are NOT requested as columns.
+   */
+
+  const possibleValues = [
+    attendance.order_status,
+    attendance.shop_order,
+    attendance.has_order,
+    attendance.hasOrder,
+    attendance.order,
+    attendance.orderPlaced,
+  ];
+
+  for (const value of possibleValues) {
+    if (
+      typeof value === 'boolean'
+    ) {
+      return value;
+    }
+
+    if (
+      typeof value === 'number'
+    ) {
+      return value === 1;
+    }
+
+    if (
+      typeof value === 'string'
+    ) {
+      const normalized =
+        value
+          .trim()
+          .toLowerCase();
+
+      if (
+        [
+          'yes',
+          'true',
+          'ordered',
+          'order',
+          'placed',
+          '1',
+        ].includes(normalized)
+      ) {
+        return true;
+      }
+
+      if (
+        [
+          'no',
+          'false',
+          'none',
+          'no order',
+          'not ordered',
+          '0',
+        ].includes(normalized)
+      ) {
+        return false;
+      }
+    }
   }
 
-  return 'none';
+  /*
+   * No order information exists in the
+   * current attendance response.
+   */
+  return false;
 };
+
+/*
+ * ================================================================
+ * GET DAY STATUS
+ * ================================================================
+ *
+ * New calendar meaning:
+ *
+ * 🟩 Green  = Order
+ * 🟥 Red    = No Order
+ * ⬜ White  = Future
+ *
+ * Multiple visits:
+ *
+ * If ANY visit on that date has an order,
+ * the entire day becomes green.
+ *
+ * Otherwise the day is red.
+ * ================================================================
+ */
+
+const getDayStatus = (
+  records: Attendance[],
+  date: Date,
+): DayStatus => {
+  if (
+    isFutureDate(date) &&
+    records.length === 0
+  ) {
+    return 'future';
+  }
+
+  if (records.length === 0) {
+    return 'no_order';
+  }
+
+  const hasOrder =
+    records.some(
+      (record) =>
+        getOrderStatus(record),
+    );
+
+  if (hasOrder) {
+    return 'order';
+  }
+
+  return 'no_order';
+};
+
+/*
+ * ================================================================
+ * TIME FORMAT
+ * ================================================================
+ */
 
 const formatAttendanceTime = (
   attendance: Attendance,
@@ -151,7 +330,8 @@ const formatAttendanceTime = (
     return 'No recorded time';
   }
 
-  const date = new Date(timestamp);
+  const date =
+    new Date(timestamp);
 
   if (
     Number.isNaN(
@@ -165,10 +345,11 @@ const formatAttendanceTime = (
 };
 
 /*
- * Create a signed URL for an attendance
- * photo using the same storage logic as
- * admin/attendance.tsx.
+ * ================================================================
+ * PHOTO URL
+ * ================================================================
  */
+
 const getAttendancePhotoUrl =
   async (
     photoPath:
@@ -223,10 +404,11 @@ const getAttendancePhotoUrl =
   };
 
 /*
- * Add signed photo URLs to attendance
- * records without changing the underlying
- * attendance data or calendar logic.
+ * ================================================================
+ * ADD PHOTO URLS
+ * ================================================================
  */
+
 const addPhotoUrls = async (
   records: Attendance[],
 ): Promise<
@@ -249,6 +431,12 @@ const addPhotoUrls = async (
     ),
   );
 };
+
+/*
+ * ================================================================
+ * MAIN SCREEN
+ * ================================================================
+ */
 
 export default function AdminSalesCalendarScreen() {
   const params =
@@ -285,12 +473,23 @@ export default function AdminSalesCalendarScreen() {
     useState<string | null>(null);
 
   /*
-   * Load the selected salesperson and
-   * ALL of their attendance records.
+   * ==============================================================
+   * LOAD DATA
+   * ==============================================================
    *
-   * Photo URLs are generated from the
-   * photo_path using Supabase signed URLs.
+   * Backend logic remains the same.
+   *
+   * We only read:
+   *
+   * sales
+   * attendance
+   *
+   * No backend updates.
+   * No migrations.
+   * No order_placed column.
+   * ==============================================================
    */
+
   const fetchData = useCallback(
     async () => {
       if (!salesId) {
@@ -310,6 +509,9 @@ export default function AdminSalesCalendarScreen() {
           salesResult,
           attendanceResult,
         ] = await Promise.all([
+          /*
+           * Salesperson
+           */
           supabase
             .from('sales')
             .select(
@@ -321,22 +523,44 @@ export default function AdminSalesCalendarScreen() {
             )
             .single(),
 
+          /*
+           * Attendance
+           *
+           * IMPORTANT:
+           * This query deliberately uses the same
+           * existing backend fields.
+           */
           supabase
             .from('attendance')
-            .select('*')
+            .select(`
+              id,
+              sales_id,
+              store_id,
+              latitude,
+              longitude,
+              gps_accuracy,
+              distance_meters,
+              photo_path,
+              client_captured_at,
+              created_at,
+              status,
+              rejection_reason
+            `)
             .eq(
               'sales_id',
               salesId,
             )
             .order(
-              'server_created_at',
+              'created_at',
               {
                 ascending: false,
               },
             ),
         ]);
 
-        if (salesResult.error) {
+        if (
+          salesResult.error
+        ) {
           throw salesResult.error;
         }
 
@@ -351,8 +575,7 @@ export default function AdminSalesCalendarScreen() {
             []) as Attendance[];
 
         /*
-         * Generate signed URLs for all
-         * attendance photos.
+         * Generate signed URLs.
          */
         const recordsWithPhotos =
           await addPhotoUrls(
@@ -389,10 +612,15 @@ export default function AdminSalesCalendarScreen() {
   }, [fetchData]);
 
   /*
-   * Back button.
+   * ==============================================================
+   * BACK
+   * ==============================================================
    */
+
   const handleGoBack = () => {
-    if (router.canGoBack()) {
+    if (
+      router.canGoBack()
+    ) {
       router.back();
     } else {
       router.replace(
@@ -402,13 +630,11 @@ export default function AdminSalesCalendarScreen() {
   };
 
   /*
-   * Group ALL attendance records by date.
-   *
-   * YYYY-MM-DD -> Attendance[]
-   *
-   * This allows multiple attendance
-   * records on the same date.
+   * ==============================================================
+   * GROUP ATTENDANCE BY DATE
+   * ==============================================================
    */
+
   const attendanceByDate =
     useMemo(() => {
       const map =
@@ -417,7 +643,9 @@ export default function AdminSalesCalendarScreen() {
           Attendance[]
         >();
 
-      for (const record of attendance) {
+      for (
+        const record of attendance
+      ) {
         const timestamp =
           record.server_created_at ??
           record.created_at;
@@ -453,13 +681,14 @@ export default function AdminSalesCalendarScreen() {
       }
 
       /*
-       * Make sure every date's records are
-       * displayed chronologically.
+       * Chronological order.
        */
-      for (const [
-        dateKey,
-        records,
-      ] of map.entries()) {
+      for (
+        const [
+          dateKey,
+          records,
+        ] of map.entries()
+      ) {
         records.sort(
           (a, b) => {
             const aTime =
@@ -492,58 +721,11 @@ export default function AdminSalesCalendarScreen() {
     }, [attendance]);
 
   /*
-   * Determine the color of a date.
-   *
-   * If there are multiple attendances:
-   *
-   * - Any approved/attended record -> green
-   * - Otherwise any pending record -> yellow
-   * - Otherwise -> red
+   * ==============================================================
+   * CALENDAR
+   * ==============================================================
    */
-  const getDayStatus = (
-    records: Attendance[],
-    date: Date,
-  ): DayStatus => {
-    if (records.length > 0) {
-      const statuses =
-        records.map(
-          (record) =>
-            getAttendanceStatus(
-              record.status,
-            ),
-        );
 
-      if (
-        statuses.includes(
-          'attended',
-        )
-      ) {
-        return 'attended';
-      }
-
-      if (
-        statuses.includes(
-          'pending',
-        )
-      ) {
-        return 'pending';
-      }
-
-      return 'none';
-    }
-
-    if (
-      isFutureDate(date)
-    ) {
-      return 'future';
-    }
-
-    return 'none';
-  };
-
-  /*
-   * Generate calendar.
-   */
   const calendarDays =
     useMemo(() => {
       const year =
@@ -571,6 +753,9 @@ export default function AdminSalesCalendarScreen() {
         | null
       )[] = [];
 
+      /*
+       * Empty cells before day 1.
+       */
       for (
         let i = 0;
         i < firstDay.getDay();
@@ -579,6 +764,9 @@ export default function AdminSalesCalendarScreen() {
         days.push(null);
       }
 
+      /*
+       * Actual days.
+       */
       for (
         let day = 1;
         day <= daysInMonth;
@@ -610,7 +798,8 @@ export default function AdminSalesCalendarScreen() {
           dateKey,
           dayNumber: day,
           status,
-          attendance: records,
+          attendance:
+            records,
         });
       }
 
@@ -621,18 +810,11 @@ export default function AdminSalesCalendarScreen() {
     ]);
 
   /*
-   * Open a specific calendar date.
-   *
-   * Fetch ALL records for:
-   *
-   * sales_id = selected salesperson
-   * date = selected calendar date
-   *
-   * No .limit(1).
-   *
-   * Photo URLs are also generated for the
-   * exact records returned by this query.
+   * ==============================================================
+   * OPEN DAY
+   * ==============================================================
    */
+
   const openDay = async (
     day: CalendarDay,
   ) => {
@@ -642,6 +824,7 @@ export default function AdminSalesCalendarScreen() {
     ) {
       setSelectedDay(day);
       setModalVisible(true);
+
       return;
     }
 
@@ -672,26 +855,45 @@ export default function AdminSalesCalendarScreen() {
           999,
         );
 
+      /*
+       * Same backend fields.
+       *
+       * No order_placed.
+       */
       const {
         data,
-        error: attendanceError,
+        error:
+          attendanceError,
       } = await supabase
         .from('attendance')
-        .select('*')
+        .select(`
+          id,
+          sales_id,
+          store_id,
+          latitude,
+          longitude,
+          gps_accuracy,
+          distance_meters,
+          photo_path,
+          client_captured_at,
+          created_at,
+          status,
+          rejection_reason
+        `)
         .eq(
           'sales_id',
           salesId,
         )
         .gte(
-          'server_created_at',
+          'created_at',
           startOfDay.toISOString(),
         )
         .lte(
-          'server_created_at',
+          'created_at',
           endOfDay.toISOString(),
         )
         .order(
-          'server_created_at',
+          'created_at',
           {
             ascending: true,
           },
@@ -731,18 +933,29 @@ export default function AdminSalesCalendarScreen() {
       );
 
       /*
-       * Fall back to the records already
-       * loaded for the selected date.
+       * Fallback to already loaded records.
        */
       setSelectedDay(day);
       setModalVisible(true);
     }
   };
 
+  /*
+   * ==============================================================
+   * CLOSE MODAL
+   * ==============================================================
+   */
+
   const closeModal = () => {
     setModalVisible(false);
     setSelectedDay(null);
   };
+
+  /*
+   * ==============================================================
+   * MONTH NAVIGATION
+   * ==============================================================
+   */
 
   const goToPreviousMonth =
     () => {
@@ -766,10 +979,16 @@ export default function AdminSalesCalendarScreen() {
       );
     };
 
+  /*
+   * ==============================================================
+   * LOADING
+   * ==============================================================
+   */
+
   if (loading) {
     return (
       <ScreenContainer
-        title="Attendance Monitoring"
+        title="Sales Visit Calendar"
       >
         <View
           style={
@@ -785,17 +1004,23 @@ export default function AdminSalesCalendarScreen() {
               styles.loadingText
             }
           >
-            Loading attendance...
+            Loading sales history...
           </Text>
         </View>
       </ScreenContainer>
     );
   }
 
+  /*
+   * ==============================================================
+   * ERROR
+   * ==============================================================
+   */
+
   if (error) {
     return (
       <ScreenContainer
-        title="Attendance Monitoring"
+        title="Sales Visit Calendar"
       >
         <View
           style={
@@ -807,7 +1032,7 @@ export default function AdminSalesCalendarScreen() {
               styles.errorTitle
             }
           >
-            Unable to load attendance
+            Unable to load sales history
           </Text>
 
           <Text
@@ -839,16 +1064,32 @@ export default function AdminSalesCalendarScreen() {
     );
   }
 
+  /*
+   * ==============================================================
+   * MAIN UI
+   * ==============================================================
+   */
+
   return (
     <ScreenContainer
-      title="Attendance Monitoring"
+      title="Sales Visit Calendar"
+      subtitle={
+        salesUser?.name ??
+        'Sales User'
+      }
     >
       <ScrollView
         contentContainerStyle={
           styles.container
         }
+        showsVerticalScrollIndicator={
+          false
+        }
       >
-        {/* Back */}
+        {/* ===================================================== */}
+        {/* BACK */}
+        {/* ===================================================== */}
+
         <Pressable
           onPress={
             handleGoBack
@@ -866,7 +1107,10 @@ export default function AdminSalesCalendarScreen() {
           </Text>
         </Pressable>
 
-        {/* Selected salesperson */}
+        {/* ===================================================== */}
+        {/* SALES USER */}
+        {/* ===================================================== */}
+
         <View
           style={
             styles.salesCard
@@ -891,103 +1135,62 @@ export default function AdminSalesCalendarScreen() {
           </Text>
         </View>
 
-        {/* Legend */}
+        {/* ===================================================== */}
+        {/* LEGEND */}
+        {/* ===================================================== */}
+
         <View
           style={
-            styles.legend
+            styles.legendCard
           }
         >
-          <View
+          <Text
             style={
-              styles.legendItem
+              styles.legendTitle
             }
           >
-            <View
-              style={[
-                styles.legendDot,
-                styles.noAttendance,
-              ]}
-            />
-
-            <Text
-              style={
-                styles.legendText
-              }
-            >
-              No attendance
-            </Text>
-          </View>
+            VISIT STATUS
+          </Text>
 
           <View
             style={
-              styles.legendItem
+              styles.legend
             }
           >
-            <View
-              style={[
-                styles.legendDot,
-                styles.pending,
-              ]}
+            <LegendItem
+              style={
+                styles.order
+              }
+              label="Order"
             />
 
-            <Text
+            <LegendItem
               style={
-                styles.legendText
+                styles.noOrder
               }
-            >
-              Pending
-            </Text>
-          </View>
-
-          <View
-            style={
-              styles.legendItem
-            }
-          >
-            <View
-              style={[
-                styles.legendDot,
-                styles.attended,
-              ]}
+              label="No Order"
             />
 
-            <Text
+            <LegendItem
               style={
-                styles.legendText
+                styles.future
               }
-            >
-              Attended
-            </Text>
-          </View>
-
-          <View
-            style={
-              styles.legendItem
-            }
-          >
-            <View
-              style={[
-                styles.legendDot,
-                styles.future,
-              ]}
+              label="Future"
             />
-
-            <Text
-              style={
-                styles.legendText
-              }
-            >
-              Future
-            </Text>
           </View>
         </View>
 
-        {/* Calendar */}
+        {/* ===================================================== */}
+        {/* CALENDAR */}
+        {/* ===================================================== */}
+
         <View
           style={
             styles.calendarCard
           }
         >
+          {/* Month header */}
+
           <View
             style={
               styles.monthHeader
@@ -1043,6 +1246,8 @@ export default function AdminSalesCalendarScreen() {
             </Pressable>
           </View>
 
+          {/* Week header */}
+
           <View
             style={
               styles.weekHeader
@@ -1068,6 +1273,8 @@ export default function AdminSalesCalendarScreen() {
             )}
           </View>
 
+          {/* Calendar grid */}
+
           <View
             style={
               styles.calendarGrid
@@ -1090,20 +1297,14 @@ export default function AdminSalesCalendarScreen() {
                 }
 
                 let statusStyle =
-                  styles.noAttendance;
+                  styles.noOrder;
 
                 if (
                   day.status ===
-                  'attended'
+                  'order'
                 ) {
                   statusStyle =
-                    styles.attended;
-                } else if (
-                  day.status ===
-                  'pending'
-                ) {
-                  statusStyle =
-                    styles.pending;
+                    styles.order;
                 } else if (
                   day.status ===
                   'future'
@@ -1172,7 +1373,10 @@ export default function AdminSalesCalendarScreen() {
         </View>
       </ScrollView>
 
-      {/* Attendance detail popup */}
+      {/* ===================================================== */}
+      {/* DAY DETAIL MODAL */}
+      {/* ===================================================== */}
+
       <Modal
         visible={
           modalVisible
@@ -1193,6 +1397,8 @@ export default function AdminSalesCalendarScreen() {
               styles.modalCard
             }
           >
+            {/* Header */}
+
             <View
               style={
                 styles.modalHeader
@@ -1208,7 +1414,7 @@ export default function AdminSalesCalendarScreen() {
                     styles.modalTitle
                   }
                 >
-                  Attendance
+                  Store Visits
                 </Text>
 
                 {selectedDay && (
@@ -1253,6 +1459,7 @@ export default function AdminSalesCalendarScreen() {
             </View>
 
             {/* Future */}
+
             {selectedDay &&
               selectedDay.status ===
                 'future' && (
@@ -1289,17 +1496,18 @@ export default function AdminSalesCalendarScreen() {
                       styles.messageText
                     }
                   >
-                    Attendance cannot
-                    exist for this
-                    date yet.
+                    No store visit can
+                    exist for this date
+                    yet.
                   </Text>
                 </View>
               )}
 
-            {/* No attendance */}
+            {/* No visits */}
+
             {selectedDay &&
               selectedDay.status ===
-                'none' &&
+                'no_order' &&
               selectedDay.attendance
                 .length ===
                 0 && (
@@ -1311,7 +1519,7 @@ export default function AdminSalesCalendarScreen() {
                   <View
                     style={[
                       styles.messageIcon,
-                      styles.noAttendance,
+                      styles.noOrder,
                     ]}
                   >
                     <Text
@@ -1328,7 +1536,7 @@ export default function AdminSalesCalendarScreen() {
                       styles.messageTitle
                     }
                   >
-                    No attendance
+                    No store visit
                   </Text>
 
                   <Text
@@ -1344,7 +1552,8 @@ export default function AdminSalesCalendarScreen() {
                 </View>
               )}
 
-            {/* Multiple / single attendance records */}
+            {/* Attendance records */}
+
             {selectedDay &&
               selectedDay.attendance
                 .length >
@@ -1375,7 +1584,7 @@ export default function AdminSalesCalendarScreen() {
                           .attendance
                           .length
                       }{' '}
-                      attendance
+                      store visit
                       {selectedDay
                         .attendance
                         .length ===
@@ -1389,8 +1598,7 @@ export default function AdminSalesCalendarScreen() {
                         styles.recordsSubtitle
                       }
                     >
-                      All attendance
-                      records for this
+                      All visits for this
                       date
                     </Text>
                   </View>
@@ -1445,16 +1653,48 @@ export default function AdminSalesCalendarScreen() {
 }
 
 /*
- * Individual attendance card.
- *
- * Every database attendance row gets its own
- * card. Therefore 3 attendance rows on the
- * same date = 3 cards in the popup.
- *
- * The photo is now displayed using the same
- * signed-URL + Image approach as
- * admin/attendance.tsx.
+ * ================================================================
+ * LEGEND ITEM
+ * ================================================================
  */
+
+function LegendItem({
+  style,
+  label,
+}: {
+  style: object;
+  label: string;
+}) {
+  return (
+    <View
+      style={
+        styles.legendItem
+      }
+    >
+      <View
+        style={[
+          styles.legendDot,
+          style,
+        ]}
+      />
+
+      <Text
+        style={
+          styles.legendText
+        }
+      >
+        {label}
+      </Text>
+    </View>
+  );
+}
+
+/*
+ * ================================================================
+ * ATTENDANCE CARD
+ * ================================================================
+ */
+
 function AttendanceCard({
   attendance,
   index,
@@ -1464,58 +1704,10 @@ function AttendanceCard({
   index: number;
   salesName: string;
 }) {
-  const status =
-    attendance.status
-      ?.toLowerCase() ??
-    'unknown';
-
-  const isAttended =
-    status === 'approved' ||
-    status === 'attended' ||
-    status === 'present';
-
-  const isPending =
-    status === 'pending';
-
-  const isRejected =
-    status === 'rejected';
-
-  let badgeStyle =
-    styles.unknownBadge;
-
-  let badgeTextStyle =
-    styles.unknownBadgeText;
-
-  let badgeText =
-    attendance.status
-      ?.toUpperCase() ??
-    'UNKNOWN';
-
-  if (isAttended) {
-    badgeStyle =
-      styles.approvedBadge;
-
-    badgeTextStyle =
-      styles.approvedBadgeText;
-
-    badgeText = 'ATTENDED';
-  } else if (isPending) {
-    badgeStyle =
-      styles.pendingBadge;
-
-    badgeTextStyle =
-      styles.pendingBadgeText;
-
-    badgeText = 'PENDING';
-  } else if (isRejected) {
-    badgeStyle =
-      styles.rejectedBadge;
-
-    badgeTextStyle =
-      styles.rejectedBadgeText;
-
-    badgeText = 'REJECTED';
-  }
+  const hasOrder =
+    getOrderStatus(
+      attendance,
+    );
 
   return (
     <View
@@ -1523,6 +1715,8 @@ function AttendanceCard({
         styles.attendanceCard
       }
     >
+      {/* Header */}
+
       <View
         style={
           styles.attendanceCardHeader
@@ -1538,7 +1732,7 @@ function AttendanceCard({
               styles.attendanceCardTitle
             }
           >
-            Attendance #{index + 1}
+            Visit #{index + 1}
           </Text>
 
           <Text
@@ -1548,17 +1742,37 @@ function AttendanceCard({
           >
             {salesName}
           </Text>
+
+          {attendance.store_id ? (
+            <Text
+              style={
+                styles.storeIdText
+              }
+            >
+              Store ID: {attendance.store_id}
+            </Text>
+          ) : null}
         </View>
 
         <View
-          style={badgeStyle}
+          style={[
+            styles.orderBadge,
+            hasOrder
+              ? styles.order
+              : styles.noOrder,
+          ]}
         >
           <Text
-            style={
-              badgeTextStyle
-            }
+            style={[
+              styles.orderBadgeText,
+              hasOrder
+                ? styles.orderBadgeTextGreen
+                : styles.orderBadgeTextRed,
+            ]}
           >
-            {badgeText}
+            {hasOrder
+              ? 'ORDER'
+              : 'NO ORDER'}
           </Text>
         </View>
       </View>
@@ -1573,11 +1787,11 @@ function AttendanceCard({
 }
 
 /*
- * Reusable attendance details.
- *
- * The photo section now renders the actual
- * attendance image just like admin/attendance.
+ * ================================================================
+ * ATTENDANCE DETAILS
+ * ================================================================
  */
+
 function AttendanceDetails({
   attendance,
 }: {
@@ -1615,13 +1829,19 @@ function AttendanceDetails({
       ? parsedDate.toLocaleTimeString()
       : 'Not available';
 
+  const hasOrder =
+    getOrderStatus(
+      attendance,
+    );
+
   return (
     <View
       style={
         styles.details
       }
     >
-      {/* Attendance photo */}
+      {/* Photo */}
+
       <View
         style={
           styles.photoSection
@@ -1643,7 +1863,8 @@ function AttendanceDetails({
           {attendance.photo_url ? (
             <Image
               source={{
-                uri: attendance.photo_url,
+                uri:
+                  attendance.photo_url,
               }}
               style={
                 styles.photo
@@ -1659,7 +1880,7 @@ function AttendanceDetails({
               <Text
                 style={
                   styles.noPhotoText
-                }
+              }
               >
                 No photo
               </Text>
@@ -1668,122 +1889,113 @@ function AttendanceDetails({
         </View>
       </View>
 
-      <View
-        style={
-          styles.detailRow
-        }
-      >
-        <Text
-          style={
-            styles.detailLabel
-          }
-        >
-          Date
-        </Text>
-
-        <Text
-          style={
-            styles.detailValue
-          }
-        >
-          {formattedDate}
-        </Text>
-      </View>
+      {/* Order */}
 
       <View
         style={
-          styles.detailRow
+          styles.orderResultBox
         }
       >
-        <Text
-          style={
-            styles.detailLabel
-          }
-        >
-          Time
-        </Text>
-
-        <Text
-          style={
-            styles.detailValue
-          }
-        >
-          {formattedTime}
-        </Text>
-      </View>
-
-      <View
-        style={
-          styles.detailRow
-        }
-      >
-        <Text
-          style={
-            styles.detailLabel
-          }
-        >
-          Status
-        </Text>
-
-        <Text
-          style={
-            styles.detailValue
-          }
-        >
-          {attendance.status ||
-            'Unknown'}
-        </Text>
-      </View>
-
-      {attendance.latitude !=
-        null && (
         <View
-          style={
-            styles.detailRow
-          }
+          style={[
+            styles.orderResultIcon,
+            hasOrder
+              ? styles.order
+              : styles.noOrder,
+          ]}
         >
           <Text
             style={
-              styles.detailLabel
+              styles.orderResultIconText
             }
           >
-            Latitude
-          </Text>
-
-          <Text
-            style={
-              styles.detailValue
-            }
-          >
-            {attendance.latitude}
+            {hasOrder
+              ? '✓'
+              : '×'}
           </Text>
         </View>
-      )}
 
-      {attendance.longitude !=
-        null && (
         <View
           style={
-            styles.detailRow
+            styles.orderResultContent
           }
         >
           <Text
             style={
-              styles.detailLabel
+              styles.orderResultLabel
             }
           >
-            Longitude
+            SHOP ORDER
           </Text>
 
           <Text
-            style={
-              styles.detailValue
-            }
+            style={[
+              styles.orderResultValue,
+              hasOrder
+                ? styles.orderText
+                : styles.noOrderText,
+            ]}
           >
-            {attendance.longitude}
+            {hasOrder
+              ? 'ORDER'
+              : 'NO ORDER'}
           </Text>
         </View>
+      </View>
+
+      {/* Date */}
+
+      <DetailRow
+        label="Date"
+        value={
+          formattedDate
+        }
+      />
+
+      {/* Time */}
+
+      <DetailRow
+        label="Time"
+        value={
+          formattedTime
+        }
+      />
+
+      {/* Status */}
+
+      <DetailRow
+        label="Attendance"
+        value={
+          attendance.status ||
+          'Unknown'
+        }
+      />
+
+      {/* Distance */}
+
+      {attendance.distance_meters !=
+        null && (
+        <DetailRow
+          label="Distance"
+          value={`${attendance.distance_meters.toFixed(
+            1,
+          )} m`}
+        />
       )}
+
+      {/* GPS accuracy */}
+
+      {attendance.gps_accuracy !=
+        null && (
+        <DetailRow
+          label="GPS Accuracy"
+          value={`${attendance.gps_accuracy.toFixed(
+            1,
+          )} m`}
+        />
+      )}
+
+      {/* Rejection */}
 
       {attendance.rejection_reason && (
         <View
@@ -1814,12 +2026,54 @@ function AttendanceDetails({
   );
 }
 
+/*
+ * ================================================================
+ * DETAIL ROW
+ * ================================================================
+ */
+
+function DetailRow({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <View
+      style={
+        styles.detailRow
+      }
+    >
+      <Text
+        style={
+          styles.detailLabel
+        }
+      >
+        {label}
+      </Text>
+
+      <Text
+        style={
+          styles.detailValue
+        }
+      >
+        {value}
+      </Text>
+    </View>
+  );
+}
+
+/*
+ * ================================================================
+ * STYLES
+ * ================================================================
+ */
+
 const styles = StyleSheet.create({
   container: {
     padding: 16,
     paddingBottom: 40,
-    backgroundColor: '#f8fafc',
-    borderRadius: 12,
   },
 
   center: {
@@ -1865,11 +2119,31 @@ const styles = StyleSheet.create({
     color: '#64748b',
   },
 
+  /* ========================================================= */
+  /* LEGEND */
+  /* ========================================================= */
+
+  legendCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+
+  legendTitle: {
+    fontSize: 10,
+    fontWeight: '900',
+    color: '#94a3b8',
+    letterSpacing: 1,
+    marginBottom: 10,
+  },
+
   legend: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 14,
-    marginBottom: 16,
+    gap: 16,
   },
 
   legendItem: {
@@ -1887,7 +2161,12 @@ const styles = StyleSheet.create({
   legendText: {
     fontSize: 12,
     color: '#475569',
+    fontWeight: '600',
   },
+
+  /* ========================================================= */
+  /* CALENDAR */
+  /* ========================================================= */
 
   calendarCard: {
     backgroundColor: '#ffffff',
@@ -1961,7 +2240,7 @@ const styles = StyleSheet.create({
 
   dayNumber: {
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '700',
     color: '#0f172a',
   },
 
@@ -1984,16 +2263,16 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
 
-  noAttendance: {
-    backgroundColor: '#fecaca',
-  },
+  /* ========================================================= */
+  /* ORDER COLORS */
+  /* ========================================================= */
 
-  pending: {
-    backgroundColor: '#fde68a',
-  },
-
-  attended: {
+  order: {
     backgroundColor: '#bbf7d0',
+  },
+
+  noOrder: {
+    backgroundColor: '#fecaca',
   },
 
   future: {
@@ -2001,6 +2280,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#e2e8f0',
   },
+
+  /* ========================================================= */
+  /* ERROR */
+  /* ========================================================= */
 
   errorTitle: {
     fontSize: 18,
@@ -2026,6 +2309,10 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontWeight: '600',
   },
+
+  /* ========================================================= */
+  /* MODAL */
+  /* ========================================================= */
 
   modalOverlay: {
     flex: 1,
@@ -2083,6 +2370,10 @@ const styles = StyleSheet.create({
     color: '#334155',
   },
 
+  /* ========================================================= */
+  /* MESSAGE */
+  /* ========================================================= */
+
   messageCard: {
     padding: 18,
     borderRadius: 12,
@@ -2120,6 +2411,10 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 
+  /* ========================================================= */
+  /* ATTENDANCE LIST */
+  /* ========================================================= */
+
   attendanceList: {
     maxHeight: 530,
   },
@@ -2145,10 +2440,14 @@ const styles = StyleSheet.create({
     color: '#64748b',
   },
 
+  /* ========================================================= */
+  /* ATTENDANCE CARD */
+  /* ========================================================= */
+
   attendanceCard: {
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#dbeafe',
+    borderColor: '#e2e8f0',
     backgroundColor: '#ffffff',
     overflow: 'hidden',
   },
@@ -2180,66 +2479,43 @@ const styles = StyleSheet.create({
     color: '#64748b',
   },
 
-  approvedBadge: {
-    paddingHorizontal: 9,
-    paddingVertical: 5,
-    borderRadius: 6,
-    backgroundColor: '#bbf7d0',
+  storeIdText: {
+    marginTop: 3,
+    fontSize: 10,
+    color: '#94a3b8',
   },
 
-  approvedBadgeText: {
+  /* ========================================================= */
+  /* ORDER BADGE */
+  /* ========================================================= */
+
+  orderBadge: {
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 8,
+  },
+
+  orderBadgeText: {
     fontSize: 10,
-    fontWeight: '800',
+    fontWeight: '900',
+  },
+
+  orderBadgeTextGreen: {
     color: '#166534',
   },
 
-  pendingBadge: {
-    paddingHorizontal: 9,
-    paddingVertical: 5,
-    borderRadius: 6,
-    backgroundColor: '#fde68a',
-  },
-
-  pendingBadgeText: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: '#854d0e',
-  },
-
-  rejectedBadge: {
-    paddingHorizontal: 9,
-    paddingVertical: 5,
-    borderRadius: 6,
-    backgroundColor: '#fecaca',
-  },
-
-  rejectedBadgeText: {
-    fontSize: 10,
-    fontWeight: '800',
+  orderBadgeTextRed: {
     color: '#991b1b',
   },
 
-  unknownBadge: {
-    paddingHorizontal: 9,
-    paddingVertical: 5,
-    borderRadius: 6,
-    backgroundColor: '#e2e8f0',
-  },
-
-  unknownBadgeText: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: '#475569',
-  },
+  /* ========================================================= */
+  /* DETAILS */
+  /* ========================================================= */
 
   details: {
     padding: 16,
   },
 
-  /*
-   * Photo section matching the visual approach
-   * used by admin/attendance.tsx.
-   */
   photoSection: {
     marginBottom: 16,
   },
@@ -2275,6 +2551,63 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
 
+  /* ========================================================= */
+  /* ORDER RESULT */
+  /* ========================================================= */
+
+  orderResultBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: 10,
+    backgroundColor: '#f8fafc',
+    marginBottom: 12,
+  },
+
+  orderResultIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+
+  orderResultIconText: {
+    fontSize: 21,
+    fontWeight: '900',
+    color: '#0f172a',
+  },
+
+  orderResultContent: {
+    flex: 1,
+  },
+
+  orderResultLabel: {
+    fontSize: 8,
+    fontWeight: '900',
+    color: '#94a3b8',
+    letterSpacing: 0.8,
+  },
+
+  orderResultValue: {
+    marginTop: 3,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+
+  orderText: {
+    color: '#15803d',
+  },
+
+  noOrderText: {
+    color: '#b91c1c',
+  },
+
+  /* ========================================================= */
+  /* DETAIL ROW */
+  /* ========================================================= */
+
   detailRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -2297,6 +2630,10 @@ const styles = StyleSheet.create({
     textAlign: 'right',
   },
 
+  /* ========================================================= */
+  /* REJECTION */
+  /* ========================================================= */
+
   rejectionBox: {
     marginTop: 14,
     padding: 12,
@@ -2316,6 +2653,10 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     color: '#7f1d1d',
   },
+
+  /* ========================================================= */
+  /* DONE */
+  /* ========================================================= */
 
   doneButton: {
     marginTop: 16,

@@ -17,15 +17,6 @@ export type AuditAction =
   | 'SPIN_STARTED'
   | 'SPIN_REJECTED'
   | 'SPIN_COMPLETED';
-  /**
-   * FUTURE (face matcher phase — not implemented yet):
-   *   | 'FACE_MATCH_SUCCESS'
-   *   | 'FACE_MATCH_FAILED'
-   *   | 'FACE_REFERENCE_ENROLLED'
-   * Add these once verifyFace() in faceDetectionService.ts is implemented
-   * and sales.reference_photo_path exists (see the draft migration in
-   * supabase/migrations/006_face_verification_draft.sql).
-   */
 
 export interface Sales {
   id: string;
@@ -118,7 +109,10 @@ export interface GpsVerificationResult {
   isWithinRadius: boolean;
   distanceMeters: number;
   reading: GpsReading;
-  store: Pick<Store, 'id' | 'name' | 'latitude' | 'longitude' | 'radius_meters'>;
+  store: Pick<
+    Store,
+    'id' | 'name' | 'latitude' | 'longitude' | 'radius_meters'
+  >;
 }
 
 export interface StoreSearchParams {
@@ -127,7 +121,8 @@ export interface StoreSearchParams {
   pageSize?: number;
 }
 
-export interface AdminStoreSearchParams extends StoreSearchParams {
+export interface AdminStoreSearchParams
+  extends StoreSearchParams {
   status?: EntityStatus | 'all';
 }
 
@@ -175,25 +170,26 @@ export interface RequestSpinPayload {
 export interface RequestSpinResult {
   spinId: string;
   status: SpinStatus;
-  reward?: Pick<Reward, 'id' | 'name' | 'value'> | null;
+  reward?: Pick<
+    Reward,
+    'id' | 'name' | 'value'
+  > | null;
   rejectionReason?: string | null;
 }
-/**
- * APPEND-ONLY: add these to the bottom of src/types/index.ts
- * Nothing existing in that file needs to change.
- */
 
-/** Attendance record enriched with display names, for the admin list/card. */
-export interface AdminAttendanceRecord extends Attendance {
+/** Attendance record enriched with display names for the read-only admin list. */
+export interface AdminAttendanceRecord
+  extends Attendance {
   salesName: string;
   storeName: string;
 }
+  /**
+   * FUTURE (face matcher phase — not implemented yet):
+   *   | 'FACE_MATCH_SUCCESS'
+   *   | 'FACE_MATCH_FAILED'
+   *   | 'FACE_REFERENCE_ENROLLED'
+   * Add these once verifyFace() in faceDetectionService.ts is implemented
+   * and sales.reference_photo_path exists (see the draft migration in
+   * supabase/migrations/006_face_verification_draft.sql).
+   */
 
-export interface ApproveAttendancePayload {
-  attendanceId: string;
-}
-
-export interface RejectAttendancePayload {
-  attendanceId: string;
-  reason: string;
-}

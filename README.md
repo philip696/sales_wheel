@@ -570,6 +570,11 @@ everything in that file is commented out — it is a sketch, not an active migra
 
 ### What to Do — Steps (Future Work)
 
+- Connect admin to spin database
+- connect sales and admin (Order) (modify database)
+- implement imagge in attendance preview
+- remove all approve and reject and pending
+
 1. Review and uncomment `supabase/migrations/006_face_verification_draft.sql`, adding RLS policies consistent with `002_rls_policies.sql`, then apply it. This adds:
 
    * `sales.reference_photo_path` — where each rep's enrolled reference photo lives in Storage.
