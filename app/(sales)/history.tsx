@@ -112,13 +112,6 @@ export default function SalesHistoryScreen() {
        * ----------------------------------------------------------
        * LOAD ATTENDANCE
        * ----------------------------------------------------------
-       *
-       * We intentionally do NOT select:
-       *
-       * - status
-       * - rejection_reason
-       *
-       * Those fields belong to the old approval UI.
        */
 
       const {
@@ -160,15 +153,8 @@ export default function SalesHistoryScreen() {
 
       /*
        * ----------------------------------------------------------
-       * LOAD SPINS FOR THIS SALESPERSON
+       * LOAD SPINS
        * ----------------------------------------------------------
-       *
-       * Existing backend relationship:
-       *
-       * spins.attendance_id
-       *
-       * If an attendance has a spin record,
-       * we treat that visit as ORDER: YES.
        */
 
       const {
@@ -290,6 +276,34 @@ export default function SalesHistoryScreen() {
 
   /*
    * ============================================================
+   * ORDER PERCENTAGE
+   * ============================================================
+   *
+   * Example:
+   *
+   * 7 orders / 10 visits = 70%
+   *
+   * If there are no visits, show 0%.
+   */
+
+  const orderPercentage =
+    totalVisits > 0
+      ? (totalOrders /
+          totalVisits) *
+        100
+      : 0;
+
+  /*
+   * Round to one decimal place.
+   *
+   * 66.666... → 66.7%
+   */
+
+  const orderPercentageDisplay =
+    `${orderPercentage.toFixed(1)}%`;
+
+  /*
+   * ============================================================
    * SCREEN
    * ============================================================
    */
@@ -363,7 +377,112 @@ export default function SalesHistoryScreen() {
                   styles.noOrderNumber
                 }
               />
+
+              <SummaryCard
+                number={
+                  loading
+                    ? '—'
+                    : orderPercentageDisplay
+                }
+                label="Order Rate"
+                numberStyle={
+                  styles.orderRateNumber
+                }
+              />
             </View>
+
+            {/* ================================================= */}
+            {/* ORDER RATE DETAIL */}
+            {/* ================================================= */}
+
+            {!loading &&
+            !error &&
+            totalVisits > 0 ? (
+              <View
+                style={
+                  styles.orderRateCard
+                }
+              >
+                <View
+                  style={
+                    styles.orderRateHeader
+                  }
+                >
+                  <View
+                    style={
+                      styles.orderRateHeaderContent
+                    }
+                  >
+                    <Text
+                      style={
+                        styles.orderRateTitle
+                      }
+                    >
+                      ORDER RATE
+                    </Text>
+
+                    <Text
+                      style={
+                        styles.orderRateDescription
+                      }
+                    >
+                      Percentage of store visits
+                      that resulted in an order.
+                    </Text>
+                  </View>
+
+                  <Text
+                    style={
+                      styles.orderRatePercentage
+                    }
+                  >
+                    {orderPercentageDisplay}
+                  </Text>
+                </View>
+
+                {/* PROGRESS BAR */}
+
+                <View
+                  style={
+                    styles.progressTrack
+                  }
+                >
+                  <View
+                    style={[
+                      styles.progressFill,
+                      {
+                        width: `${Math.min(
+                          orderPercentage,
+                          100
+                        )}%`,
+                      },
+                    ]}
+                  />
+                </View>
+
+                <View
+                  style={
+                    styles.orderRateFooter
+                  }
+                >
+                  <Text
+                    style={
+                      styles.orderRateFooterText
+                    }
+                  >
+                    {totalOrders} orders
+                  </Text>
+
+                  <Text
+                    style={
+                      styles.orderRateFooterText
+                    }
+                  >
+                    {totalVisits} visits
+                  </Text>
+                </View>
+              </View>
+            ) : null}
 
             {/* ================================================= */}
             {/* LOADING */}
@@ -771,8 +890,8 @@ const styles = StyleSheet.create({
 
   summaryRow: {
     flexDirection: 'row',
-    gap: 7,
-    marginBottom: 22,
+    gap: 6,
+    marginBottom: 16,
   },
 
   summaryCard: {
@@ -783,12 +902,12 @@ const styles = StyleSheet.create({
     borderColor:
       '#e2e8f0',
     borderRadius: 13,
-    paddingVertical: 13,
-    paddingHorizontal: 7,
+    paddingVertical: 12,
+    paddingHorizontal: 4,
   },
 
   summaryNumber: {
-    fontSize: 20,
+    fontSize: 17,
     fontWeight: '900',
     color: '#111827',
     marginBottom: 3,
@@ -807,12 +926,93 @@ const styles = StyleSheet.create({
     color: '#64748b',
   },
 
+  orderRateNumber: {
+    color: '#7c3aed',
+  },
+
   summaryLabel: {
-    fontSize: 8,
+    fontSize: 7,
     fontWeight: '800',
     color: '#94a3b8',
     textAlign: 'center',
-    textTransform: 'uppercase',
+    textTransform:
+      'uppercase',
+  },
+
+  /* =========================================================
+   * ORDER RATE
+   * ========================================================= */
+
+  orderRateCard: {
+    backgroundColor:
+      '#ffffff',
+    borderWidth: 1,
+    borderColor:
+      '#e2e8f0',
+    borderRadius: 15,
+    padding: 15,
+    marginBottom: 22,
+  },
+
+  orderRateHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent:
+      'space-between',
+    marginBottom: 12,
+  },
+
+  orderRateHeaderContent: {
+    flex: 1,
+    marginRight: 12,
+  },
+
+  orderRateTitle: {
+    fontSize: 10,
+    fontWeight: '900',
+    color: '#64748b',
+    letterSpacing: 1,
+    marginBottom: 4,
+  },
+
+  orderRateDescription: {
+    fontSize: 10,
+    color: '#94a3b8',
+    lineHeight: 15,
+  },
+
+  orderRatePercentage: {
+    fontSize: 26,
+    fontWeight: '900',
+    color: '#7c3aed',
+  },
+
+  progressTrack: {
+    height: 9,
+    backgroundColor:
+      '#f1f5f9',
+    borderRadius: 10,
+    overflow: 'hidden',
+  },
+
+  progressFill: {
+    height: '100%',
+    backgroundColor:
+      '#7c3aed',
+    borderRadius: 10,
+  },
+
+  orderRateFooter: {
+    flexDirection: 'row',
+    justifyContent:
+      'space-between',
+    marginTop: 7,
+  },
+
+  orderRateFooterText: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#94a3b8',
   },
 
   /* =========================================================

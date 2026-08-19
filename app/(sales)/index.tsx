@@ -1,5 +1,11 @@
 import { router } from 'expo-router';
-import { StyleSheet, Text, View } from 'react-native';
+import { useMemo } from 'react';
+import {
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 
 import { PrimaryButton } from '@/src/components/PrimaryButton';
 import { ScreenContainer } from '@/src/components/ScreenContainer';
@@ -16,201 +22,356 @@ export default function SalesHomeScreen() {
     spinCompleted,
   } = useAttendanceFlow();
 
+  const firstName = useMemo(() => {
+    const name = profile?.name?.trim();
+
+    if (!name) {
+      return 'Sales';
+    }
+
+    return name.split(' ')[0];
+  }, [profile?.name]);
+
   return (
     <ScreenContainer
-      title={`Hello, ${profile?.name ?? 'Sales'}`}
-      subtitle="Manage your store visits and rewards"
+      title={`Hi, ${firstName}`}
+      subtitle="Your sales activity at a glance"
     >
       {/* ===================================================== */}
-      {/* WELCOME */}
+      {/* TOP HERO */}
       {/* ===================================================== */}
 
-      <View style={styles.welcomeCard}>
-        <View style={styles.welcomeIcon}>
-          <Text style={styles.welcomeEmoji}>
-            👋
-          </Text>
-        </View>
+      <View style={styles.hero}>
+        <View style={styles.heroTopRow}>
+          <View style={styles.heroText}>
+            <Text style={styles.heroEyebrow}>
+              TODAY
+            </Text>
 
-        <View style={styles.welcomeContent}>
-          <Text style={styles.welcomeTitle}>
-            Ready for today's visits?
-          </Text>
+            <Text style={styles.heroTitle}>
+              Ready to make a visit?
+            </Text>
 
-          <Text style={styles.welcomeText}>
-            Complete your store attendance to
-            participate in today's reward program.
-          </Text>
-        </View>
-      </View>
-
-      {/* ===================================================== */}
-      {/* STORE ATTENDANCE */}
-      {/* ===================================================== */}
-
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>
-          STORE ATTENDANCE
-        </Text>
-
-        <View style={styles.card}>
-          <View style={styles.cardIcon}>
-            <Text style={styles.cardEmoji}>
-              📍
+            <Text style={styles.heroSubtitle}>
+              Check in at a store and unlock
+              today's reward.
             </Text>
           </View>
 
-          <View style={styles.cardContent}>
-            <Text style={styles.cardTitle}>
-              Start Attendance
+          <View style={styles.heroOrb}>
+            <View style={styles.heroOrbInner}>
+              <Text style={styles.heroOrbText}>
+                S
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        <View style={styles.heroDivider} />
+
+        <View style={styles.heroBottom}>
+          <View>
+            <Text style={styles.heroSmallLabel}>
+              CURRENT STATUS
             </Text>
 
-            <Text style={styles.cardText}>
-              Select your store, verify your GPS
-              location, and take a fresh photo.
+            <Text style={styles.heroStatus}>
+              {spinCompleted
+                ? 'Reward completed'
+                : lastSubmission
+                  ? orderPlaced
+                    ? 'Order recorded'
+                    : 'Visit completed'
+                  : 'Ready for attendance'}
             </Text>
           </View>
 
-          <PrimaryButton
-            title="SELECT STORE"
-            onPress={() =>
-              router.push(
-                '/(sales)/stores'
-              )
-            }
+          <View
+            style={[
+              styles.statusDot,
+              spinCompleted
+                ? styles.statusDotComplete
+                : lastSubmission
+                  ? styles.statusDotActive
+                  : styles.statusDotReady,
+            ]}
           />
         </View>
       </View>
 
       {/* ===================================================== */}
-      {/* CURRENT ATTENDANCE */}
+      {/* QUICK ACTIONS */}
+      {/* ===================================================== */}
+
+      <Text style={styles.sectionLabel}>
+        QUICK ACTIONS
+      </Text>
+
+      <View style={styles.actionGrid}>
+        {/* ATTENDANCE */}
+
+        <Pressable
+          style={({ pressed }) => [
+            styles.actionCard,
+            pressed && styles.pressed,
+          ]}
+          onPress={() =>
+            router.push('/(sales)/stores')
+          }
+        >
+          <View
+            style={[
+              styles.actionIcon,
+              styles.actionIconBlue,
+            ]}
+          >
+            <Text style={styles.actionIconText}>
+              +
+            </Text>
+          </View>
+
+          <Text style={styles.actionTitle}>
+            Check In
+          </Text>
+
+          <Text style={styles.actionSubtitle}>
+            Start a store visit
+          </Text>
+
+          <View style={styles.actionArrow}>
+            <Text style={styles.arrowText}>
+              →
+            </Text>
+          </View>
+        </Pressable>
+
+        {/* ADD STORE */}
+
+        <Pressable
+          style={({ pressed }) => [
+            styles.actionCard,
+            pressed && styles.pressed,
+          ]}
+          onPress={() =>
+            router.push('/(sales)/add-store')
+          }
+        >
+          <View
+            style={[
+              styles.actionIcon,
+              styles.actionIconDark,
+            ]}
+          >
+            <Text style={styles.storeIcon}>
+              +
+            </Text>
+          </View>
+
+          <Text style={styles.actionTitle}>
+            Add Store
+          </Text>
+
+          <Text style={styles.actionSubtitle}>
+            Register a new location
+          </Text>
+
+          <View style={styles.actionArrow}>
+            <Text style={styles.arrowText}>
+              →
+            </Text>
+          </View>
+        </Pressable>
+      </View>
+
+      {/* ===================================================== */}
+      {/* CURRENT VISIT */}
       {/* ===================================================== */}
 
       {lastSubmission ? (
-        <View style={styles.statusCard}>
-          {/* HEADER */}
-
-          <View style={styles.statusHeader}>
-            <Text style={styles.statusTitle}>
-              CURRENT ATTENDANCE
-            </Text>
-
-            <View style={styles.statusBadge}>
-              <Text style={styles.statusBadgeText}>
-                OK
-              </Text>
-            </View>
-          </View>
-
-          {/* STORE */}
-
-          {selectedStore ? (
-            <Text style={styles.statusStore}>
-              📍 {selectedStore.name}
-            </Text>
-          ) : null}
-
-          {/* ATTENDANCE STATUS */}
-
-          <Text style={styles.statusDescription}>
-            Your attendance has been successfully
-            submitted.
+        <>
+          <Text style={styles.sectionLabel}>
+            CURRENT VISIT
           </Text>
 
-          {/* ================================================= */}
-          {/* ORDER STATUS */}
-          {/* ================================================= */}
+          <View style={styles.visitCard}>
+            {/* VISIT HEADER */}
 
-          {orderPlaced !== null ? (
-            <View style={styles.orderStatusCard}>
-              <View style={styles.orderStatusLeft}>
-                <Text style={styles.orderStatusLabel}>
+            <View style={styles.visitHeader}>
+              <View style={styles.visitHeaderLeft}>
+                <View style={styles.liveIndicator}>
+                  <View style={styles.liveDot} />
+                </View>
+
+                <View>
+                  <Text style={styles.visitEyebrow}>
+                    VISIT ACTIVE
+                  </Text>
+
+                  <Text style={styles.visitTitle}>
+                    {selectedStore?.name ??
+                      'Store Visit'}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.checkCircle}>
+                <Text style={styles.checkText}>
+                  ✓
+                </Text>
+              </View>
+            </View>
+
+            {/* VISIT INFO */}
+
+            <View style={styles.visitInfoRow}>
+              <View style={styles.visitInfo}>
+                <Text style={styles.visitInfoLabel}>
+                  ATTENDANCE
+                </Text>
+
+                <Text style={styles.visitInfoValue}>
+                  Submitted
+                </Text>
+              </View>
+
+              <View style={styles.visitInfo}>
+                <Text style={styles.visitInfoLabel}>
                   ORDER
                 </Text>
 
                 <Text
                   style={[
-                    styles.orderStatusValue,
+                    styles.visitInfoValue,
                     orderPlaced
-                      ? styles.orderYes
-                      : styles.orderNo,
+                      ? styles.orderGreen
+                      : styles.orderGray,
                   ]}
                 >
-                  {orderPlaced
-                    ? 'YES'
-                    : 'NO'}
-                </Text>
-              </View>
-
-              <View
-                style={[
-                  styles.orderStatusIcon,
-                  orderPlaced
-                    ? styles.orderYesBackground
-                    : styles.orderNoBackground,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.orderStatusIconText,
-                    orderPlaced
-                      ? styles.orderYesIconText
-                      : styles.orderNoIconText,
-                  ]}
-                >
-                  {orderPlaced
-                    ? '✓'
-                    : '—'}
+                  {orderPlaced === null
+                    ? '—'
+                    : orderPlaced
+                      ? 'YES'
+                      : 'NO'}
                 </Text>
               </View>
             </View>
-          ) : null}
 
-          {/* ================================================= */}
-          {/* CONTINUE TO SPIN */}
-          {/* ================================================= */}
+            {/* ORDER STATUS */}
 
-          {orderPlaced === true &&
-          !spinCompleted ? (
-            <PrimaryButton
-              title="GO TO SPIN WHEEL"
-              onPress={() =>
-                router.push(
-                  '/(sales)/spin'
-                )
-              }
-              style={styles.statusButton}
-            />
-          ) : null}
-        </View>
+            {orderPlaced !== null ? (
+              <View
+                style={[
+                  styles.orderBanner,
+                  orderPlaced
+                    ? styles.orderBannerYes
+                    : styles.orderBannerNo,
+                ]}
+              >
+                <View
+                  style={[
+                    styles.orderBannerIcon,
+                    orderPlaced
+                      ? styles.orderBannerIconYes
+                      : styles.orderBannerIconNo,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.orderBannerIconText,
+                      orderPlaced
+                        ? styles.orderBannerIconTextYes
+                        : styles.orderBannerIconTextNo,
+                    ]}
+                  >
+                    {orderPlaced ? '✓' : '—'}
+                  </Text>
+                </View>
+
+                <View style={styles.orderBannerContent}>
+                  <Text
+                    style={[
+                      styles.orderBannerTitle,
+                      orderPlaced
+                        ? styles.orderBannerTitleYes
+                        : styles.orderBannerTitleNo,
+                    ]}
+                  >
+                    {orderPlaced
+                      ? 'Order recorded'
+                      : 'No order recorded'}
+                  </Text>
+
+                  <Text style={styles.orderBannerText}>
+                    {orderPlaced
+                      ? 'This visit qualifies for the reward wheel.'
+                      : 'No reward spin is available for this visit.'}
+                  </Text>
+                </View>
+              </View>
+            ) : null}
+
+            {/* SPIN BUTTON */}
+
+            {orderPlaced === true &&
+            !spinCompleted ? (
+              <PrimaryButton
+                title="OPEN REWARD WHEEL"
+                onPress={() =>
+                  router.push(
+                    '/(sales)/spin'
+                  )
+                }
+                style={styles.spinButton}
+              />
+            ) : null}
+
+            {/* COMPLETED */}
+
+            {spinCompleted ? (
+              <View style={styles.completedStrip}>
+                <View style={styles.completedBadge}>
+                  <Text style={styles.completedBadgeText}>
+                    ✓
+                  </Text>
+                </View>
+
+                <View style={styles.completedContent}>
+                  <Text style={styles.completedTitle}>
+                    Reward claimed
+                  </Text>
+
+                  <Text style={styles.completedText}>
+                    This visit has been completed.
+                  </Text>
+                </View>
+              </View>
+            ) : null}
+          </View>
+        </>
       ) : null}
 
       {/* ===================================================== */}
-      {/* REWARD COMPLETED */}
+      {/* NO CURRENT VISIT */}
       {/* ===================================================== */}
 
-      {spinCompleted ? (
-        <View style={styles.completedCard}>
-          <View style={styles.completedIcon}>
-            <Text style={styles.completedEmoji}>
-              🎉
+      {!lastSubmission ? (
+        <View style={styles.emptyVisit}>
+          <View style={styles.emptyVisitIcon}>
+            <Text style={styles.emptyVisitIconText}>
+              +
             </Text>
           </View>
 
-          <Text style={styles.completedTitle}>
-            Reward Claimed
-          </Text>
-
-          <Text style={styles.completedText}>
-            You have already completed the reward
-            wheel for this visit.
-          </Text>
-
-          {selectedStore ? (
-            <Text style={styles.completedStore}>
-              📍 {selectedStore.name}
+          <View style={styles.emptyVisitContent}>
+            <Text style={styles.emptyVisitTitle}>
+              No visit started
             </Text>
-          ) : null}
+
+            <Text style={styles.emptyVisitText}>
+              Choose a store above to begin today's
+              attendance.
+            </Text>
+          </View>
         </View>
       ) : null}
 
@@ -218,329 +379,555 @@ export default function SalesHomeScreen() {
       {/* HISTORY */}
       {/* ===================================================== */}
 
-      <View style={styles.historyCard}>
-        <View style={styles.historyContent}>
-          <Text style={styles.historyTitle}>
-            📋 Visit History
-          </Text>
+      <Text style={styles.sectionLabel}>
+        ACTIVITY
+      </Text>
 
-          <Text style={styles.historyText}>
-            View your previous attendance and
-            rewards.
+      <Pressable
+        style={({ pressed }) => [
+          styles.historyCard,
+          pressed && styles.pressed,
+        ]}
+        onPress={() =>
+          router.push('/(sales)/history')
+        }
+      >
+        <View style={styles.historyIcon}>
+          <Text style={styles.historyIconText}>
+            ↗
           </Text>
         </View>
 
-        <PrimaryButton
-          title="VIEW"
-          variant="secondary"
-          onPress={() =>
-            router.push(
-              '/(sales)/history'
-            )
-          }
-        />
-      </View>
+        <View style={styles.historyContent}>
+          <Text style={styles.historyTitle}>
+            Visit History
+          </Text>
+
+          <Text style={styles.historyText}>
+            Review previous visits and orders
+          </Text>
+        </View>
+
+        <Text style={styles.historyArrow}>
+          →
+        </Text>
+      </Pressable>
 
       {/* ===================================================== */}
       {/* SIGN OUT */}
       {/* ===================================================== */}
 
-      <PrimaryButton
-        title="SIGN OUT"
-        variant="danger"
+      <Pressable
+        style={({ pressed }) => [
+          styles.signOutButton,
+          pressed && styles.pressed,
+        ]}
         onPress={signOut}
-        style={styles.signOut}
-      />
+      >
+        <Text style={styles.signOutText}>
+          Sign out
+        </Text>
+      </Pressable>
 
-      <Text style={styles.footer}>
-        Store attendance and rewards are securely
-        validated by the server.
-      </Text>
+      {/* ===================================================== */}
+      {/* FOOTER */}
+      {/* ===================================================== */}
+
+      <View style={styles.footer}>
+        <View style={styles.footerDot} />
+
+        <Text style={styles.footerText}>
+          Attendance and rewards are securely
+          validated by the server.
+        </Text>
+      </View>
     </ScreenContainer>
   );
 }
 
 const styles = StyleSheet.create({
   /* =========================================================
-   * WELCOME
+   * HERO
    * ========================================================= */
 
-  welcomeCard: {
+  hero: {
+    backgroundColor: '#111827',
+    borderRadius: 24,
+    padding: 20,
+    marginBottom: 24,
+    overflow: 'hidden',
+  },
+
+  heroTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#eff6ff',
-    borderWidth: 1,
-    borderColor: '#bfdbfe',
-    borderRadius: 17,
-    padding: 16,
-    marginBottom: 22,
   },
 
-  welcomeIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#dbeafe',
+  heroText: {
+    flex: 1,
+    paddingRight: 12,
+  },
+
+  heroEyebrow: {
+    fontSize: 9,
+    fontWeight: '900',
+    color: '#93c5fd',
+    letterSpacing: 1.5,
+    marginBottom: 7,
+  },
+
+  heroTitle: {
+    fontSize: 23,
+    lineHeight: 28,
+    fontWeight: '900',
+    color: '#ffffff',
+    letterSpacing: -0.5,
+  },
+
+  heroSubtitle: {
+    fontSize: 11,
+    lineHeight: 17,
+    color: '#9ca3af',
+    marginTop: 7,
+  },
+
+  heroOrb: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#1e293b',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
   },
 
-  welcomeEmoji: {
-    fontSize: 23,
+  heroOrbInner: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#2563eb',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 
-  welcomeContent: {
-    flex: 1,
-  },
-
-  welcomeTitle: {
-    fontSize: 14,
+  heroOrbText: {
+    fontSize: 20,
     fontWeight: '900',
-    color: '#1e40af',
+    color: '#ffffff',
+  },
+
+  heroDivider: {
+    height: 1,
+    backgroundColor: '#263244',
+    marginVertical: 17,
+  },
+
+  heroBottom: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+
+  heroSmallLabel: {
+    fontSize: 8,
+    fontWeight: '800',
+    color: '#64748b',
+    letterSpacing: 1,
     marginBottom: 4,
   },
 
-  welcomeText: {
-    fontSize: 11,
-    color: '#64748b',
-    lineHeight: 16,
-  },
-
-  /* =========================================================
-   * SECTIONS
-   * ========================================================= */
-
-  section: {
-    marginBottom: 18,
-  },
-
-  sectionTitle: {
-    fontSize: 10,
-    fontWeight: '900',
-    color: '#9ca3af',
-    letterSpacing: 1,
-    marginBottom: 8,
-  },
-
-  /* =========================================================
-   * ATTENDANCE
-   * ========================================================= */
-
-  card: {
-    backgroundColor: '#ffffff',
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    borderRadius: 17,
-    padding: 16,
-  },
-
-  cardIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#f1f5f9',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 11,
-  },
-
-  cardEmoji: {
-    fontSize: 23,
-  },
-
-  cardContent: {
-    marginBottom: 13,
-  },
-
-  cardTitle: {
-    fontSize: 17,
-    fontWeight: '900',
-    color: '#111827',
-    marginBottom: 5,
-  },
-
-  cardText: {
-    fontSize: 11,
-    color: '#64748b',
-    lineHeight: 17,
-  },
-
-  /* =========================================================
-   * CURRENT ATTENDANCE
-   * ========================================================= */
-
-  statusCard: {
-    backgroundColor: '#f0fdf4',
-    borderWidth: 1,
-    borderColor: '#bbf7d0',
-    borderRadius: 15,
-    padding: 14,
-    marginBottom: 18,
-  },
-
-  statusHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 10,
-  },
-
-  statusTitle: {
-    fontSize: 10,
-    fontWeight: '900',
-    color: '#64748b',
-    letterSpacing: 1,
-  },
-
-  statusBadge: {
-    backgroundColor: '#dcfce7',
-    borderRadius: 20,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-  },
-
-  statusBadgeText: {
-    fontSize: 9,
-    fontWeight: '900',
-    color: '#166534',
-  },
-
-  statusStore: {
-    fontSize: 14,
+  heroStatus: {
+    fontSize: 12,
     fontWeight: '800',
-    color: '#111827',
-    marginBottom: 5,
+    color: '#e5e7eb',
   },
 
-  statusDescription: {
-    fontSize: 11,
-    color: '#64748b',
-    lineHeight: 17,
-    marginBottom: 12,
+  statusDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+
+  statusDotReady: {
+    backgroundColor: '#60a5fa',
+  },
+
+  statusDotActive: {
+    backgroundColor: '#34d399',
+  },
+
+  statusDotComplete: {
+    backgroundColor: '#a78bfa',
   },
 
   /* =========================================================
-   * ORDER STATUS
+   * SECTION
    * ========================================================= */
 
-  orderStatusCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#ffffff',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 12,
-  },
-
-  orderStatusLeft: {
-    flex: 1,
-  },
-
-  orderStatusLabel: {
+  sectionLabel: {
     fontSize: 9,
     fontWeight: '900',
     color: '#94a3b8',
+    letterSpacing: 1.4,
+    marginBottom: 9,
+  },
+
+  /* =========================================================
+   * QUICK ACTIONS
+   * ========================================================= */
+
+  actionGrid: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 24,
+  },
+
+  actionCard: {
+    flex: 1,
+    minHeight: 156,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 20,
+    padding: 15,
+    position: 'relative',
+  },
+
+  pressed: {
+    opacity: 0.72,
+    transform: [{ scale: 0.99 }],
+  },
+
+  actionIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 18,
+  },
+
+  actionIconBlue: {
+    backgroundColor: '#eff6ff',
+  },
+
+  actionIconDark: {
+    backgroundColor: '#f1f5f9',
+  },
+
+  actionIconText: {
+    fontSize: 25,
+    fontWeight: '300',
+    color: '#2563eb',
+  },
+
+  storeIcon: {
+    fontSize: 25,
+    fontWeight: '300',
+    color: '#334155',
+  },
+
+  actionTitle: {
+    fontSize: 14,
+    fontWeight: '900',
+    color: '#111827',
+    marginBottom: 4,
+  },
+
+  actionSubtitle: {
+    fontSize: 10,
+    lineHeight: 15,
+    color: '#94a3b8',
+    paddingRight: 12,
+  },
+
+  actionArrow: {
+    position: 'absolute',
+    right: 13,
+    bottom: 13,
+  },
+
+  arrowText: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#cbd5e1',
+  },
+
+  /* =========================================================
+   * CURRENT VISIT
+   * ========================================================= */
+
+  visitCard: {
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 22,
+    padding: 17,
+    marginBottom: 24,
+  },
+
+  visitHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+
+  visitHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+
+  liveIndicator: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: '#ecfdf5',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 11,
+  },
+
+  liveDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#10b981',
+  },
+
+  visitEyebrow: {
+    fontSize: 8,
+    fontWeight: '900',
+    color: '#10b981',
     letterSpacing: 1,
     marginBottom: 3,
   },
 
-  orderStatusValue: {
-    fontSize: 18,
+  visitTitle: {
+    fontSize: 15,
     fontWeight: '900',
+    color: '#111827',
   },
 
-  orderYes: {
-    color: '#15803d',
-  },
-
-  orderNo: {
-    color: '#64748b',
-  },
-
-  orderStatusIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+  checkCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#dcfce7',
     alignItems: 'center',
     justifyContent: 'center',
   },
 
-  orderYesBackground: {
-    backgroundColor: '#dcfce7',
-  },
-
-  orderNoBackground: {
-    backgroundColor: '#f1f5f9',
-  },
-
-  orderStatusIconText: {
-    fontSize: 20,
+  checkText: {
+    fontSize: 15,
     fontWeight: '900',
-  },
-
-  orderYesIconText: {
     color: '#16a34a',
   },
 
-  orderNoIconText: {
-    color: '#64748b',
+  visitInfoRow: {
+    flexDirection: 'row',
+    marginTop: 18,
+    paddingTop: 15,
+    borderTopWidth: 1,
+    borderTopColor: '#f1f5f9',
   },
 
-  statusButton: {
-    marginTop: 2,
+  visitInfo: {
+    flex: 1,
   },
 
-  /* =========================================================
-   * REWARD COMPLETED
-   * ========================================================= */
-
-  completedCard: {
-    backgroundColor: '#f0fdf4',
-    borderWidth: 1,
-    borderColor: '#bbf7d0',
-    borderRadius: 17,
-    padding: 18,
-    alignItems: 'center',
-    marginBottom: 18,
-  },
-
-  completedIcon: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: '#dcfce7',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 10,
-  },
-
-  completedEmoji: {
-    fontSize: 25,
-  },
-
-  completedTitle: {
-    fontSize: 16,
+  visitInfoLabel: {
+    fontSize: 8,
     fontWeight: '900',
-    color: '#166534',
+    color: '#94a3b8',
+    letterSpacing: 0.8,
     marginBottom: 5,
   },
 
-  completedText: {
-    fontSize: 11,
-    color: '#64748b',
-    lineHeight: 17,
-    textAlign: 'center',
-    marginBottom: 6,
+  visitInfoValue: {
+    fontSize: 13,
+    fontWeight: '900',
+    color: '#334155',
   },
 
-  completedStore: {
+  orderGreen: {
+    color: '#16a34a',
+  },
+
+  orderGray: {
+    color: '#64748b',
+  },
+
+  /* =========================================================
+   * ORDER BANNER
+   * ========================================================= */
+
+  orderBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 14,
+    padding: 11,
+    marginTop: 14,
+  },
+
+  orderBannerYes: {
+    backgroundColor: '#f0fdf4',
+  },
+
+  orderBannerNo: {
+    backgroundColor: '#f8fafc',
+  },
+
+  orderBannerIcon: {
+    width: 31,
+    height: 31,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+
+  orderBannerIconYes: {
+    backgroundColor: '#dcfce7',
+  },
+
+  orderBannerIconNo: {
+    backgroundColor: '#e2e8f0',
+  },
+
+  orderBannerIconText: {
+    fontSize: 15,
+    fontWeight: '900',
+  },
+
+  orderBannerIconTextYes: {
+    color: '#16a34a',
+  },
+
+  orderBannerIconTextNo: {
+    color: '#64748b',
+  },
+
+  orderBannerContent: {
+    flex: 1,
+  },
+
+  orderBannerTitle: {
     fontSize: 11,
-    fontWeight: '800',
-    color: '#15803d',
+    fontWeight: '900',
+    marginBottom: 2,
+  },
+
+  orderBannerTitleYes: {
+    color: '#166534',
+  },
+
+  orderBannerTitleNo: {
+    color: '#475569',
+  },
+
+  orderBannerText: {
+    fontSize: 9,
+    lineHeight: 14,
+    color: '#94a3b8',
+  },
+
+  spinButton: {
+    marginTop: 12,
+  },
+
+  /* =========================================================
+   * COMPLETED
+   * ========================================================= */
+
+  completedStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#faf5ff',
+    borderRadius: 14,
+    padding: 11,
+    marginTop: 12,
+  },
+
+  completedBadge: {
+    width: 31,
+    height: 31,
+    borderRadius: 10,
+    backgroundColor: '#ede9fe',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+
+  completedBadgeText: {
+    color: '#7c3aed',
+    fontSize: 15,
+    fontWeight: '900',
+  },
+
+  completedContent: {
+    flex: 1,
+  },
+
+  completedTitle: {
+    fontSize: 11,
+    fontWeight: '900',
+    color: '#6d28d9',
+    marginBottom: 2,
+  },
+
+  completedText: {
+    fontSize: 9,
+    color: '#94a3b8',
+  },
+
+  /* =========================================================
+   * EMPTY VISIT
+   * ========================================================= */
+
+  emptyVisit: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 18,
+    padding: 14,
+    marginBottom: 24,
+  },
+
+  emptyVisitIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 11,
+  },
+
+  emptyVisitIconText: {
+    fontSize: 22,
+    fontWeight: '300',
+    color: '#64748b',
+  },
+
+  emptyVisitContent: {
+    flex: 1,
+  },
+
+  emptyVisitTitle: {
+    fontSize: 12,
+    fontWeight: '900',
+    color: '#334155',
+    marginBottom: 3,
+  },
+
+  emptyVisitText: {
+    fontSize: 10,
+    lineHeight: 15,
+    color: '#94a3b8',
   },
 
   /* =========================================================
@@ -550,24 +937,38 @@ const styles = StyleSheet.create({
   historyCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#f8fafc',
+    backgroundColor: '#ffffff',
     borderWidth: 1,
     borderColor: '#e2e8f0',
-    borderRadius: 15,
+    borderRadius: 18,
     padding: 14,
     marginBottom: 18,
   },
 
+  historyIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 13,
+    backgroundColor: '#f1f5f9',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 11,
+  },
+
+  historyIconText: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#475569',
+  },
+
   historyContent: {
     flex: 1,
-    marginRight: 10,
   },
 
   historyTitle: {
     fontSize: 13,
-    fontWeight: '800',
-    color: '#374151',
+    fontWeight: '900',
+    color: '#1e293b',
     marginBottom: 3,
   },
 
@@ -576,19 +977,53 @@ const styles = StyleSheet.create({
     color: '#94a3b8',
   },
 
+  historyArrow: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#94a3b8',
+    marginLeft: 8,
+  },
+
+  /* =========================================================
+   * SIGN OUT
+   * ========================================================= */
+
+  signOutButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 13,
+    marginBottom: 17,
+  },
+
+  signOutText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#94a3b8',
+  },
+
   /* =========================================================
    * FOOTER
    * ========================================================= */
 
-  signOut: {
-    marginBottom: 12,
+  footer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 15,
+    paddingBottom: 10,
   },
 
-  footer: {
+  footerDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: '#10b981',
+    marginRight: 6,
+  },
+
+  footerText: {
+    fontSize: 8,
+    color: '#a1a1aa',
     textAlign: 'center',
-    color: '#9ca3af',
-    fontSize: 9,
-    lineHeight: 14,
-    marginBottom: 10,
   },
 });

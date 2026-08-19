@@ -20,8 +20,7 @@ const MIN_ZOOM = 0;
 const MAX_ZOOM = 1;
 
 export default function AttendanceCameraScreen() {
-  const cameraRef =
-    useRef<CameraView>(null);
+  const cameraRef = useRef<CameraView>(null);
 
   const [permission, requestPermission] =
     useCameraPermissions();
@@ -85,12 +84,50 @@ export default function AttendanceCameraScreen() {
 
   /*
    * ============================================================
-   * CANCEL
+   * BACK TO PREVIOUS PAGE
    * ============================================================
+   *
+   * This does NOT reset the attendance flow.
+   *
+   * Camera:
+   * GPS Verification → Camera
+   *
+   * Pressing back:
+   * Camera → GPS Verification
+   *
+   * The selected store and attendance state remain intact.
+   */
+
+  const handleBack = () => {
+    if (
+      capturing ||
+      checkingFace
+    ) {
+      return;
+    }
+
+    router.back();
+  };
+
+  /*
+   * ============================================================
+   * CANCEL ENTIRE ATTENDANCE
+   * ============================================================
+   *
+   * This is only used when the user is on the
+   * camera permission screen.
    */
 
   const handleCancelAttendance = () => {
+    if (
+      capturing ||
+      checkingFace
+    ) {
+      return;
+    }
+
     resetFlow();
+
     router.replace('/(sales)');
   };
 
@@ -124,17 +161,6 @@ export default function AttendanceCameraScreen() {
    * ============================================================
    * ZOOM
    * ============================================================
-   *
-   * We use five simple zoom steps.
-   *
-   * 0.00 = normal
-   * 0.25
-   * 0.50
-   * 0.75
-   * 1.00 = maximum
-   *
-   * This is easier to control on mobile than a continuous
-   * slider and works nicely on the simulator/device.
    */
 
   const zoomSteps = [
@@ -215,7 +241,7 @@ export default function AttendanceCameraScreen() {
 
   /*
    * ============================================================
-   * CAMERA PERMISSION
+   * CAMERA PERMISSION LOADING
    * ============================================================
    */
 
@@ -243,6 +269,12 @@ export default function AttendanceCameraScreen() {
       </View>
     );
   }
+
+  /*
+   * ============================================================
+   * CAMERA PERMISSION NOT GRANTED
+   * ============================================================
+   */
 
   if (!permission.granted) {
     return (
@@ -335,7 +367,7 @@ export default function AttendanceCameraScreen() {
 
   /*
    * ============================================================
-   * CAPTURE
+   * CAPTURE PHOTO
    * ============================================================
    */
 
@@ -537,8 +569,7 @@ export default function AttendanceCameraScreen() {
 
         Alert.alert(
           'Capture Failed',
-          error instanceof
-          Error
+          error instanceof Error
             ? error.message
             : 'Unable to capture the photo. Please try again.'
         );
@@ -550,7 +581,7 @@ export default function AttendanceCameraScreen() {
 
   /*
    * ============================================================
-   * UI
+   * MAIN CAMERA UI
    * ============================================================
    */
 
@@ -576,7 +607,7 @@ export default function AttendanceCameraScreen() {
       <View
         style={styles.topBar}
       >
-        {/* CANCEL */}
+        {/* BACK */}
 
         <Pressable
           style={({ pressed }) => [
@@ -584,16 +615,14 @@ export default function AttendanceCameraScreen() {
             pressed &&
               styles.topButtonPressed,
           ]}
-          onPress={
-            handleCancelAttendance
-          }
+          onPress={handleBack}
           disabled={busy}
           hitSlop={10}
         >
           <Text
             style={styles.topButtonText}
           >
-            ✕
+            ‹
           </Text>
         </Pressable>
 
@@ -824,7 +853,7 @@ export default function AttendanceCameraScreen() {
           selection
         </Text>
 
-        {/* CANCEL */}
+        {/* BACK TO GPS */}
 
         <Pressable
           style={({ pressed }) => [
@@ -832,9 +861,7 @@ export default function AttendanceCameraScreen() {
             pressed &&
               styles.cancelTextButtonPressed,
           ]}
-          onPress={
-            handleCancelAttendance
-          }
+          onPress={handleBack}
           disabled={busy}
         >
           <Text
@@ -842,7 +869,7 @@ export default function AttendanceCameraScreen() {
               styles.cancelText
             }
           >
-            CANCEL ATTENDANCE
+            BACK
           </Text>
         </Pressable>
       </View>
@@ -910,8 +937,9 @@ const styles = StyleSheet.create({
 
   topButtonText: {
     color: '#ffffff',
-    fontSize: 20,
-    fontWeight: '900',
+    fontSize: 32,
+    fontWeight: '400',
+    lineHeight: 36,
   },
 
   cameraBadge: {
@@ -1134,14 +1162,14 @@ const styles = StyleSheet.create({
 
   /*
    * ============================================================
-   * CANCEL
+   * BACK BUTTON
    * ============================================================
    */
 
   cancelTextButton: {
     marginTop: 14,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingHorizontal: 20,
+    paddingVertical: 9,
   },
 
   cancelTextButtonPressed: {
@@ -1242,7 +1270,9 @@ const styles = StyleSheet.create({
   permissionLoading: {
     flex: 1,
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent:
+      'center',
+    backgroundColor: '#000000',
   },
 
   permissionLoadingText: {

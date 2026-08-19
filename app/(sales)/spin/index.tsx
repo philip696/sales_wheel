@@ -1,6 +1,5 @@
 import { router } from 'expo-router';
 import { useRef, useState } from 'react';
-
 import {
   Alert,
   Animated,
@@ -12,48 +11,108 @@ import {
 } from 'react-native';
 
 import { ScreenContainer } from '@/src/components/ScreenContainer';
-
 import { useAttendanceFlow } from '@/src/features/attendance/AttendanceFlowContext';
 
-import { requestSpin } from '@/src/services/spinService';
+/*
+ * ============================================================
+ * DEMO REWARDS
+ * ============================================================
+ *
+ * DEMO MODE:
+ *
+ * This screen intentionally does NOT call:
+ *
+ *   requestSpin()
+ *
+ * or:
+ *
+ *   supabase.rpc('request_spin')
+ *
+ * The reward is selected locally for the client demo.
+ *
+ * Probability is represented as a percentage.
+ *
+ * IMPORTANT:
+ * This is NOT production anti-cheat logic.
+ */
 
 const DISCOUNTS = [
   {
     id: 1,
     label: '5% OFF',
-    color: '#3b82f6',
+    color: '#2563eb',
     code: 'SAVE5NOW',
+    probability: 0.25,
     message:
       'Nice start! Take 5% off your next store order.',
   },
   {
     id: 2,
     label: '10% OFF',
-    color: '#10b981',
+    color: '#059669',
     code: 'SAVE10NOW',
+    probability: 0.35,
     message:
       'Great win! Enjoy 10% off your purchase.',
   },
   {
     id: 3,
     label: '15% OFF',
-    color: '#f59e0b',
+    color: '#d97706',
     code: 'SAVE15NOW',
+    probability: 0.25,
     message:
       'Awesome! 15% discount unlocked!',
   },
   {
     id: 4,
     label: '20% OFF',
-    color: '#ef4444',
+    color: '#dc2626',
     code: 'SAVE20NOW',
+    probability: 0.15,
     message:
       'Jackpot! You got the maximum 20% discount!',
   },
-];
+] as const;
 
 type VisualDiscount =
   (typeof DISCOUNTS)[number];
+
+/*
+ * ============================================================
+ * FRONTEND DEMO REWARD SELECTION
+ * ============================================================
+ *
+ * Uses weighted probability.
+ *
+ * Example:
+ *
+ * 5%  = 25%
+ * 10% = 35%
+ * 15% = 25%
+ * 20% = 15%
+ *
+ * Total = 100%
+ */
+
+function selectDemoReward(): VisualDiscount {
+  const random = Math.random();
+
+  let cumulative = 0;
+
+  for (const reward of DISCOUNTS) {
+    cumulative += reward.probability;
+
+    if (random < cumulative) {
+      return reward;
+    }
+  }
+
+  /*
+   * Floating point safety fallback.
+   */
+  return DISCOUNTS[DISCOUNTS.length - 1];
+}
 
 export default function SpinScreen() {
   const {
@@ -91,49 +150,6 @@ export default function SpinScreen() {
 
   /*
    * ============================================================
-   * FIND VISUAL REWARD
-   * ============================================================
-   *
-   * The database returns the actual reward.
-   *
-   * We only use DISCOUNTS here to determine how
-   * that reward should look on the wheel.
-   */
-
-  const findVisualReward = (
-    rewardName: string,
-    rewardValue: string
-  ): VisualDiscount | null => {
-    const normalizedName =
-      rewardName
-        .trim()
-        .toLowerCase();
-
-    const normalizedValue =
-      rewardValue
-        .trim()
-        .toLowerCase();
-
-    const reward =
-      DISCOUNTS.find((item) => {
-        return (
-          item.label
-            .toLowerCase() ===
-            normalizedName ||
-          item.code
-            .toLowerCase() ===
-            normalizedValue ||
-          item.label
-            .toLowerCase() ===
-            normalizedValue
-        );
-      });
-
-    return reward ?? null;
-  };
-
-  /*
-   * ============================================================
    * ALREADY COMPLETED
    * ============================================================
    */
@@ -145,9 +161,11 @@ export default function SpinScreen() {
         subtitle="Reward already claimed"
       >
         <View style={styles.completedCard}>
-          <Text style={styles.completedEmoji}>
-            🎉
-          </Text>
+          <View style={styles.completedIcon}>
+            <Text style={styles.completedEmoji}>
+              🎉
+            </Text>
+          </View>
 
           <Text style={styles.completedTitle}>
             Wheel Already Spun
@@ -159,9 +177,11 @@ export default function SpinScreen() {
           </Text>
 
           {selectedStore ? (
-            <Text style={styles.completedStore}>
-              📍 {selectedStore.name}
-            </Text>
+            <View style={styles.storePill}>
+              <Text style={styles.storePillText}>
+                📍 {selectedStore.name}
+              </Text>
+            </View>
           ) : null}
 
           <TouchableOpacity
@@ -171,9 +191,7 @@ export default function SpinScreen() {
             }
             activeOpacity={0.8}
           >
-            <Text
-              style={styles.backButtonText}
-            >
+            <Text style={styles.backButtonText}>
               BACK TO HOME
             </Text>
           </TouchableOpacity>
@@ -195,52 +213,42 @@ export default function SpinScreen() {
         subtitle="Reward unavailable"
       >
         <View style={styles.lockedCard}>
-          <Text style={styles.lockedEmoji}>
-            🔒
-          </Text>
+          <View style={styles.lockedIcon}>
+            <Text style={styles.lockedEmoji}>
+              🔒
+            </Text>
+          </View>
 
           <Text style={styles.lockedTitle}>
             Spin Not Available
           </Text>
 
           <Text style={styles.lockedText}>
-            You can only use the Spin Wheel after
-            completing attendance and confirming
-            that an order was placed.
+            Complete your store attendance and
+            confirm an order before using the
+            reward wheel.
           </Text>
 
           {!lastSubmission ? (
-            <View
-              style={styles.statusBoxInfo}
-            >
-              <Text
-                style={styles.statusTitleInfo}
-              >
-                No Attendance Found
+            <View style={styles.statusBoxInfo}>
+              <Text style={styles.statusTitleInfo}>
+                Attendance Required
               </Text>
 
-              <Text
-                style={styles.statusTextInfo}
-              >
+              <Text style={styles.statusTextInfo}>
                 Complete a store attendance first.
               </Text>
             </View>
           ) : null}
 
           {!selectedStore ? (
-            <View
-              style={styles.statusBoxInfo}
-            >
-              <Text
-                style={styles.statusTitleInfo}
-              >
-                No Store Selected
+            <View style={styles.statusBoxInfo}>
+              <Text style={styles.statusTitleInfo}>
+                Store Required
               </Text>
 
-              <Text
-                style={styles.statusTextInfo}
-              >
-                Please select a store and complete
+              <Text style={styles.statusTextInfo}>
+                Select a store and complete
                 attendance first.
               </Text>
             </View>
@@ -249,18 +257,12 @@ export default function SpinScreen() {
           {lastSubmission &&
           selectedStore &&
           orderPlaced !== true ? (
-            <View
-              style={styles.statusBoxInfo}
-            >
-              <Text
-                style={styles.statusTitleInfo}
-              >
+            <View style={styles.statusBoxInfo}>
+              <Text style={styles.statusTitleInfo}>
                 No Order Recorded
               </Text>
 
-              <Text
-                style={styles.statusTextInfo}
-              >
+              <Text style={styles.statusTextInfo}>
                 The Spin Wheel is only available
                 when an order was placed.
               </Text>
@@ -274,11 +276,7 @@ export default function SpinScreen() {
             }
             activeOpacity={0.8}
           >
-            <Text
-              style={
-                styles.attendanceButtonText
-              }
-            >
+            <Text style={styles.attendanceButtonText}>
               BACK TO HOME
             </Text>
           </TouchableOpacity>
@@ -289,7 +287,7 @@ export default function SpinScreen() {
 
   /*
    * ============================================================
-   * SPIN
+   * DEMO SPIN
    * ============================================================
    */
 
@@ -305,6 +303,10 @@ export default function SpinScreen() {
     ) {
       return;
     }
+
+    /*
+     * Safety checks.
+     */
 
     if (!lastSubmission) {
       Alert.alert(
@@ -325,111 +327,92 @@ export default function SpinScreen() {
     /*
      * Prevent double taps.
      */
+
     setSpinning(true);
 
     try {
       /*
        * ========================================================
-       * DATABASE SPIN
+       * DEMO MODE
        * ========================================================
        *
-       * The database chooses the reward.
+       * We intentionally DO NOT call requestSpin().
        *
-       * DO NOT use Math.random() here.
+       * The reward is selected locally using the probability
+       * values defined in DISCOUNTS.
        */
 
-      const result = await requestSpin({
-        attendanceId:
-          lastSubmission.attendanceId,
-
-        storeId:
-          selectedStore.id,
-
-        latitude:
-          selectedStore.latitude,
-
-        longitude:
-          selectedStore.longitude,
-      });
+      const selectedReward =
+        selectDemoReward();
 
       /*
-       * Save the actual server result into
-       * AttendanceFlowContext.
-       */
-
-      setLastSpin(result);
-
-      /*
-       * The server rejected the spin.
-       */
-
-      if (result.status === 'rejected') {
-        throw new Error(
-          result.rejectionReason ??
-            'Spin was rejected.'
-        );
-      }
-
-      /*
-       * Server should normally return a reward.
-       */
-
-      if (!result.reward) {
-        throw new Error(
-          'The server completed the spin but did not return a reward.'
-        );
-      }
-
-      /*
-       * Match the server reward to the visual
-       * wheel configuration.
-       */
-
-      const visualReward =
-        findVisualReward(
-          result.reward.name,
-          result.reward.value
-        );
-
-      /*
-       * If the database reward is not represented
-       * by the frontend wheel, fail safely instead
-       * of showing the wrong reward.
-       */
-
-      if (!visualReward) {
-        throw new Error(
-          `Reward "${result.reward.name}" is not configured in the Spin Wheel UI.`
-        );
-      }
-
-      /*
-       * ========================================================
-       * ANIMATE TO THE SERVER-SELECTED REWARD
-       * ========================================================
+       * Find reward index.
        */
 
       const rewardIndex =
         DISCOUNTS.findIndex(
           (item) =>
-            item.id === visualReward.id
+            item.id === selectedReward.id
         );
 
       if (rewardIndex < 0) {
         throw new Error(
-          'Unable to locate the selected reward on the wheel.'
+          'Unable to locate selected reward.'
         );
       }
+
+      /*
+       * ========================================================
+       * OPTIONAL LOCAL SPIN RESULT
+       * ========================================================
+       *
+       * We attempt to save a local-compatible result
+       * into the AttendanceFlow context.
+       *
+       * This does NOT write to Supabase.
+       *
+       * If your context accepts a different shape,
+       * this block can simply be removed.
+       */
+
+      try {
+        setLastSpin({
+          spinId: `demo-${Date.now()}`,
+          status: 'completed',
+          reward: {
+            id: String(selectedReward.id),
+            name: selectedReward.label,
+            value: selectedReward.code,
+          },
+          rejectionReason: null,
+        });
+      } catch {
+        /*
+         * Context compatibility shouldn't prevent
+         * the frontend demo from working.
+         */
+      }
+
+      /*
+       * ========================================================
+       * WHEEL ANIMATION
+       * ========================================================
+       */
 
       const sliceAngle =
         360 / DISCOUNTS.length;
 
-      const extraTurns =
-        360 * 5;
+      /*
+       * Five full rotations for a proper
+       * spinning-wheel effect.
+       */
+
+      const extraTurns = 360 * 5;
 
       /*
-       * Point the selected slice toward
-       * the top pointer.
+       * Calculate the center of the selected slice.
+       *
+       * The pointer is at the top.
        */
 
       const targetSliceDegree =
@@ -442,27 +425,34 @@ export default function SpinScreen() {
         extraTurns +
         targetSliceDegree;
 
-      Animated.timing(spinValue, {
-        toValue: finalDegree,
-        duration: 4500,
-        easing: Easing.out(
-          Easing.cubic
-        ),
-        useNativeDriver: true,
-      }).start(() => {
+      Animated.timing(
+        spinValue,
+        {
+          toValue: finalDegree,
+          duration: 4500,
+          easing: Easing.out(
+            Easing.cubic
+          ),
+          useNativeDriver: true,
+        }
+      ).start(() => {
         currentRotation.current =
           finalDegree % 360;
 
         setSpinning(false);
 
         /*
-         * Display exactly the reward returned
-         * by Supabase.
+         * Display the selected reward.
          */
 
         setWonDiscount(
-          visualReward
+          selectedReward
         );
+
+        /*
+         * Mark the local frontend flow as
+         * completed.
+         */
 
         setSpinCompleted(true);
       });
@@ -472,7 +462,7 @@ export default function SpinScreen() {
       const message =
         error instanceof Error
           ? error.message
-          : 'Unable to complete the spin.';
+          : 'Unable to complete the demo spin.';
 
       Alert.alert(
         'Spin Failed',
@@ -480,6 +470,12 @@ export default function SpinScreen() {
       );
     }
   };
+
+  /*
+   * ============================================================
+   * ROTATION
+   * ============================================================
+   */
 
   const spinInterpolation =
     spinValue.interpolate({
@@ -502,39 +498,63 @@ export default function SpinScreen() {
       subtitle="Spin to win your reward"
     >
       <View style={styles.wheelCard}>
-        <View
-          style={styles.approvedBadge}
-        >
-          <Text
-            style={
-              styles.approvedBadgeText
-            }
-          >
+        {/* ================================================= */}
+        {/* DEMO MODE */}
+        {/* ================================================= */}
+
+        <View style={styles.demoBadge}>
+          <View style={styles.demoDot} />
+
+          <Text style={styles.demoBadgeText}>
+            DEMO MODE
+          </Text>
+        </View>
+
+        {/* ================================================= */}
+        {/* ATTENDANCE */}
+        {/* ================================================= */}
+
+        <View style={styles.attendanceBadge}>
+          <Text style={styles.attendanceBadgeText}>
             ✓ ATTENDANCE COMPLETE
           </Text>
         </View>
 
+        {/* ================================================= */}
+        {/* STORE */}
+        {/* ================================================= */}
+
         {selectedStore ? (
-          <Text style={styles.storeText}>
-            📍 {selectedStore.name}
-          </Text>
+          <View style={styles.storePill}>
+            <Text style={styles.storePillText}>
+              📍 {selectedStore.name}
+            </Text>
+          </View>
         ) : null}
 
+        {/* ================================================= */}
+        {/* ORDER */}
+        {/* ================================================= */}
+
         <View style={styles.orderBadge}>
-          <Text
-            style={styles.orderBadgeText}
-          >
+          <Text style={styles.orderBadgeText}>
             🛒 ORDER PLACED
           </Text>
         </View>
 
-        <View
-          style={styles.pointerContainer}
-        >
-          <Text style={styles.pointerIcon}>
-            ▼
-          </Text>
+        {/* ================================================= */}
+        {/* POINTER */}
+        {/* ================================================= */}
+
+        <View style={styles.pointerContainer}>
+          <View style={styles.pointerOuter}>
+            <View style={styles.pointerInner} />
+          </View>
         </View>
+
+        {/* ================================================= */}
+        {/* WHEEL */}
+        {/* ================================================= */}
 
         <View style={styles.wheelWrapper}>
           <Animated.View
@@ -550,6 +570,8 @@ export default function SpinScreen() {
               },
             ]}
           >
+            {/* TOP RIGHT */}
+
             <View
               style={[
                 styles.quadrant,
@@ -563,19 +585,14 @@ export default function SpinScreen() {
               <Text
                 style={[
                   styles.quadrantText,
-                  {
-                    transform: [
-                      {
-                        rotate:
-                          '45deg',
-                      },
-                    ],
-                  },
+                  styles.quadrantTextTR,
                 ]}
               >
                 {DISCOUNTS[0].label}
               </Text>
             </View>
+
+            {/* BOTTOM RIGHT */}
 
             <View
               style={[
@@ -590,19 +607,14 @@ export default function SpinScreen() {
               <Text
                 style={[
                   styles.quadrantText,
-                  {
-                    transform: [
-                      {
-                        rotate:
-                          '-45deg',
-                      },
-                    ],
-                  },
+                  styles.quadrantTextBR,
                 ]}
               >
                 {DISCOUNTS[1].label}
               </Text>
             </View>
+
+            {/* BOTTOM LEFT */}
 
             <View
               style={[
@@ -617,19 +629,14 @@ export default function SpinScreen() {
               <Text
                 style={[
                   styles.quadrantText,
-                  {
-                    transform: [
-                      {
-                        rotate:
-                          '45deg',
-                      },
-                    ],
-                  },
+                  styles.quadrantTextBL,
                 ]}
               >
                 {DISCOUNTS[2].label}
               </Text>
             </View>
+
+            {/* TOP LEFT */}
 
             <View
               style={[
@@ -644,19 +651,14 @@ export default function SpinScreen() {
               <Text
                 style={[
                   styles.quadrantText,
-                  {
-                    transform: [
-                      {
-                        rotate:
-                          '-45deg',
-                      },
-                    ],
-                  },
+                  styles.quadrantTextTL,
                 ]}
               >
                 {DISCOUNTS[3].label}
               </Text>
             </View>
+
+            {/* DIVIDERS */}
 
             <View
               style={styles.verticalLine}
@@ -667,18 +669,26 @@ export default function SpinScreen() {
             />
           </Animated.View>
 
+          {/* CENTER */}
+
           <View
-            style={styles.wheelCenterCap}
+            style={styles.wheelCenterOuter}
           >
-            <Text
-              style={
-                styles.centerCapEmoji
-              }
+            <View
+              style={styles.wheelCenterInner}
             >
-              🎁
-            </Text>
+              <Text
+                style={styles.centerCapEmoji}
+              >
+                🎁
+              </Text>
+            </View>
           </View>
         </View>
+
+        {/* ================================================= */}
+        {/* RESULT */}
+        {/* ================================================= */}
 
         {wonDiscount ? (
           <View
@@ -690,6 +700,20 @@ export default function SpinScreen() {
               },
             ]}
           >
+            <View
+              style={[
+                styles.resultIcon,
+                {
+                  backgroundColor:
+                    `${wonDiscount.color}18`,
+                },
+              ]}
+            >
+              <Text style={styles.resultEmoji}>
+                🎉
+              </Text>
+            </View>
+
             <Text
               style={[
                 styles.resultBadgeText,
@@ -699,42 +723,49 @@ export default function SpinScreen() {
                 },
               ]}
             >
-              🎉 {wonDiscount.label}{' '}
-              UNLOCKED!
+              {wonDiscount.label}
             </Text>
 
-            <Text
-              style={styles.resultMessage}
-            >
+            <Text style={styles.resultUnlocked}>
+              REWARD UNLOCKED
+            </Text>
+
+            <Text style={styles.resultMessage}>
               {wonDiscount.message}
             </Text>
 
-            <View
-              style={
-                styles.codeContainer
-              }
-            >
-              <Text
-                style={styles.codeLabel}
-              >
-                Promo Code:
+            <View style={styles.codeContainer}>
+              <Text style={styles.codeLabel}>
+                PROMO CODE
               </Text>
 
-              <Text
-                style={styles.codeValue}
-              >
+              <Text style={styles.codeValue}>
                 {wonDiscount.code}
               </Text>
             </View>
           </View>
         ) : (
-          <Text style={styles.hint}>
-            Order confirmed.
-            {'\n'}
-            Spin the wheel to get your
-            reward!
-          </Text>
+          <View style={styles.hintCard}>
+            <Text style={styles.hintIcon}>
+              ✨
+            </Text>
+
+            <View style={styles.hintContent}>
+              <Text style={styles.hintTitle}>
+                Ready to spin?
+              </Text>
+
+              <Text style={styles.hint}>
+                Order confirmed. Spin the wheel
+                to reveal your reward.
+              </Text>
+            </View>
+          </View>
         )}
+
+        {/* ================================================= */}
+        {/* SPIN BUTTON */}
+        {/* ================================================= */}
 
         <TouchableOpacity
           style={[
@@ -748,11 +779,9 @@ export default function SpinScreen() {
             spinning ||
             wonDiscount !== null
           }
-          activeOpacity={0.8}
+          activeOpacity={0.85}
         >
-          <Text
-            style={styles.spinButtonText}
-          >
+          <Text style={styles.spinButtonText}>
             {spinning
               ? 'SPINNING...'
               : wonDiscount
@@ -760,6 +789,10 @@ export default function SpinScreen() {
                 : 'SPIN WHEEL'}
           </Text>
         </TouchableOpacity>
+
+        {/* ================================================= */}
+        {/* CLAIM */}
+        {/* ================================================= */}
 
         {wonDiscount ? (
           <TouchableOpacity
@@ -771,45 +804,77 @@ export default function SpinScreen() {
                 '/(sales)/spin/result'
               )
             }
-            activeOpacity={0.8}
+            activeOpacity={0.85}
           >
             <Text
               style={
                 styles.resultRouteButtonText
               }
             >
-              CLAIM REWARD ›
+              CLAIM REWARD
+            </Text>
+
+            <Text
+              style={
+                styles.resultRouteArrow
+              }
+            >
+              →
             </Text>
           </TouchableOpacity>
         ) : null}
+
+        {/* ================================================= */}
+        {/* DEMO WARNING */}
+        {/* ================================================= */}
+
+        <Text style={styles.demoNote}>
+          Demo reward selection is running
+          locally on this device.
+        </Text>
       </View>
     </ScreenContainer>
   );
 }
 
-const WHEEL_SIZE = 220;
+const WHEEL_SIZE = 240;
 
 const styles = StyleSheet.create({
+  /*
+   * =========================================================
+   * LOCKED
+   * =========================================================
+   */
+
   lockedCard: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#ffffff',
-    borderRadius: 20,
+    borderRadius: 24,
     borderWidth: 1,
     borderColor: '#e2e8f0',
     padding: 28,
   },
 
+  lockedIcon: {
+    width: 78,
+    height: 78,
+    borderRadius: 39,
+    backgroundColor: '#f1f5f9',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
+  },
+
   lockedEmoji: {
-    fontSize: 52,
-    marginBottom: 18,
+    fontSize: 38,
   },
 
   lockedTitle: {
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: '900',
-    color: '#111827',
+    color: '#0f172a',
     textAlign: 'center',
     marginBottom: 10,
   },
@@ -827,9 +892,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#f8fafc',
     borderWidth: 1,
     borderColor: '#e2e8f0',
-    borderRadius: 12,
+    borderRadius: 14,
     padding: 14,
-    marginBottom: 14,
+    marginBottom: 12,
   },
 
   statusTitleInfo: {
@@ -849,8 +914,8 @@ const styles = StyleSheet.create({
 
   attendanceButton: {
     width: '100%',
-    backgroundColor: '#111827',
-    borderRadius: 12,
+    backgroundColor: '#0f172a',
+    borderRadius: 14,
     paddingVertical: 15,
     alignItems: 'center',
     marginTop: 8,
@@ -858,30 +923,45 @@ const styles = StyleSheet.create({
 
   attendanceButtonText: {
     color: '#ffffff',
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '900',
+    letterSpacing: 0.5,
   },
 
+  /*
+   * =========================================================
+   * COMPLETED
+   * =========================================================
+   */
+
   completedCard: {
-    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#ffffff',
-    borderRadius: 20,
+    borderRadius: 24,
     borderWidth: 1,
     borderColor: '#e2e8f0',
     padding: 28,
   },
 
+  completedIcon: {
+    width: 82,
+    height: 82,
+    borderRadius: 41,
+    backgroundColor: '#ecfdf5',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 18,
+  },
+
   completedEmoji: {
-    fontSize: 56,
-    marginBottom: 16,
+    fontSize: 42,
   },
 
   completedTitle: {
-    fontSize: 23,
+    fontSize: 24,
     fontWeight: '900',
-    color: '#111827',
+    color: '#0f172a',
     textAlign: 'center',
     marginBottom: 10,
   },
@@ -894,91 +974,192 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
 
-  completedStore: {
-    fontSize: 14,
-    fontWeight: '800',
+  storePill: {
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 999,
+    paddingHorizontal: 13,
+    paddingVertical: 7,
+    marginBottom: 12,
+  },
+
+  storePillText: {
     color: '#334155',
-    marginBottom: 24,
+    fontSize: 12,
+    fontWeight: '800',
   },
 
   backButton: {
     width: '100%',
-    backgroundColor: '#111827',
-    borderRadius: 12,
+    backgroundColor: '#0f172a',
+    borderRadius: 14,
     paddingVertical: 15,
     alignItems: 'center',
+    marginTop: 10,
   },
 
   backButtonText: {
     color: '#ffffff',
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '900',
+    letterSpacing: 0.5,
   },
+
+  /*
+   * =========================================================
+   * MAIN CARD
+   * =========================================================
+   */
 
   wheelCard: {
     backgroundColor: '#ffffff',
-    borderRadius: 20,
+    borderRadius: 24,
     borderWidth: 1,
     borderColor: '#e2e8f0',
     padding: 20,
     alignItems: 'center',
+    shadowColor: '#0f172a',
+    shadowOffset: {
+      width: 0,
+      height: 8,
+    },
+    shadowOpacity: 0.06,
+    shadowRadius: 20,
+    elevation: 3,
   },
 
-  approvedBadge: {
-    backgroundColor: '#dcfce7',
+  /*
+   * =========================================================
+   * DEMO BADGE
+   * =========================================================
+   */
+
+  demoBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff7ed',
+    borderWidth: 1,
+    borderColor: '#fed7aa',
     borderRadius: 999,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    paddingHorizontal: 11,
+    paddingVertical: 6,
     marginBottom: 10,
   },
 
-  approvedBadgeText: {
-    color: '#166534',
-    fontSize: 11,
-    fontWeight: '900',
+  demoDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: '#f97316',
+    marginRight: 6,
   },
 
-  storeText: {
-    color: '#334155',
-    fontSize: 14,
-    fontWeight: '800',
-    marginBottom: 12,
+  demoBadgeText: {
+    color: '#c2410c',
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 1,
   },
+
+  /*
+   * =========================================================
+   * ATTENDANCE BADGE
+   * =========================================================
+   */
+
+  attendanceBadge: {
+    backgroundColor: '#ecfdf5',
+    borderWidth: 1,
+    borderColor: '#bbf7d0',
+    borderRadius: 999,
+    paddingHorizontal: 13,
+    paddingVertical: 7,
+    marginBottom: 10,
+  },
+
+  attendanceBadgeText: {
+    color: '#15803d',
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 0.6,
+  },
+
+  /*
+   * =========================================================
+   * ORDER BADGE
+   * =========================================================
+   */
 
   orderBadge: {
-    backgroundColor: '#dbeafe',
+    backgroundColor: '#eff6ff',
+    borderWidth: 1,
+    borderColor: '#bfdbfe',
     borderRadius: 999,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    paddingHorizontal: 13,
+    paddingVertical: 7,
     marginBottom: 18,
   },
 
   orderBadgeText: {
-    color: '#1e40af',
-    fontSize: 11,
+    color: '#1d4ed8',
+    fontSize: 9,
     fontWeight: '900',
+    letterSpacing: 0.6,
   },
+
+  /*
+   * =========================================================
+   * POINTER
+   * =========================================================
+   */
 
   pointerContainer: {
-    height: 30,
-    justifyContent: 'center',
+    height: 27,
     alignItems: 'center',
+    justifyContent: 'center',
     zIndex: 20,
-    marginBottom: -4,
+    marginBottom: -2,
   },
 
-  pointerIcon: {
-    fontSize: 30,
-    lineHeight: 30,
-    color: '#111827',
+  pointerOuter: {
+    width: 0,
+    height: 0,
+    borderLeftWidth: 13,
+    borderRightWidth: 13,
+    borderTopWidth: 25,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderTopColor: '#0f172a',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
+
+  pointerInner: {
+    position: 'absolute',
+    width: 0,
+    height: 0,
+    borderLeftWidth: 7,
+    borderRightWidth: 7,
+    borderTopWidth: 14,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderTopColor: '#ffffff',
+    top: -21,
+  },
+
+  /*
+   * =========================================================
+   * WHEEL
+   * =========================================================
+   */
 
   wheelWrapper: {
     width: WHEEL_SIZE,
     height: WHEEL_SIZE,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 24,
+    marginBottom: 22,
   },
 
   wheelContainer: {
@@ -987,8 +1168,9 @@ const styles = StyleSheet.create({
     borderRadius: WHEEL_SIZE / 2,
     overflow: 'hidden',
     position: 'relative',
-    borderWidth: 5,
-    borderColor: '#111827',
+    borderWidth: 6,
+    borderColor: '#0f172a',
+    backgroundColor: '#ffffff',
   },
 
   quadrant: {
@@ -1031,127 +1213,269 @@ const styles = StyleSheet.create({
     textShadowRadius: 2,
   },
 
+  quadrantTextTR: {
+    transform: [
+      {
+        rotate: '45deg',
+      },
+    ],
+  },
+
+  quadrantTextBR: {
+    transform: [
+      {
+        rotate: '-45deg',
+      },
+    ],
+  },
+
+  quadrantTextBL: {
+    transform: [
+      {
+        rotate: '45deg',
+      },
+    ],
+  },
+
+  quadrantTextTL: {
+    transform: [
+      {
+        rotate: '-45deg',
+      },
+    ],
+  },
+
   verticalLine: {
     position: 'absolute',
-    width: 2,
+    width: 3,
     height: WHEEL_SIZE,
     backgroundColor: '#ffffff',
-    left:
-      WHEEL_SIZE / 2 - 1,
+    left: WHEEL_SIZE / 2 - 1.5,
     top: 0,
   },
 
   horizontalLine: {
     position: 'absolute',
     width: WHEEL_SIZE,
-    height: 2,
+    height: 3,
     backgroundColor: '#ffffff',
-    top:
-      WHEEL_SIZE / 2 - 1,
+    top: WHEEL_SIZE / 2 - 1.5,
     left: 0,
   },
 
-  wheelCenterCap: {
+  /*
+   * =========================================================
+   * CENTER
+   * =========================================================
+   */
+
+  wheelCenterOuter: {
     position: 'absolute',
-    width: 58,
-    height: 58,
-    borderRadius: 29,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#0f172a',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  wheelCenterInner: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
     backgroundColor: '#ffffff',
-    borderWidth: 4,
-    borderColor: '#111827',
     alignItems: 'center',
     justifyContent: 'center',
   },
 
   centerCapEmoji: {
-    fontSize: 28,
+    fontSize: 27,
+  },
+
+  /*
+   * =========================================================
+   * HINT
+   * =========================================================
+   */
+
+  hintCard: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 14,
+    padding: 12,
+    marginBottom: 16,
+  },
+
+  hintIcon: {
+    fontSize: 22,
+    marginRight: 10,
+  },
+
+  hintContent: {
+    flex: 1,
+  },
+
+  hintTitle: {
+    color: '#334155',
+    fontSize: 12,
+    fontWeight: '900',
+    marginBottom: 2,
   },
 
   hint: {
     color: '#64748b',
-    fontSize: 14,
-    lineHeight: 21,
-    textAlign: 'center',
-    marginBottom: 20,
+    fontSize: 11,
+    lineHeight: 16,
   },
+
+  /*
+   * =========================================================
+   * RESULT
+   * =========================================================
+   */
 
   resultCard: {
     width: '100%',
     borderWidth: 2,
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 20,
+    borderRadius: 18,
+    padding: 17,
+    marginBottom: 16,
     alignItems: 'center',
     backgroundColor: '#ffffff',
   },
 
+  resultIcon: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+
+  resultEmoji: {
+    fontSize: 25,
+  },
+
   resultBadgeText: {
-    fontSize: 18,
+    fontSize: 22,
     fontWeight: '900',
     textAlign: 'center',
+    marginBottom: 2,
+  },
+
+  resultUnlocked: {
+    color: '#94a3b8',
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 1,
     marginBottom: 8,
   },
 
   resultMessage: {
-    fontSize: 14,
+    fontSize: 12,
     color: '#475569',
-    lineHeight: 20,
+    lineHeight: 18,
     textAlign: 'center',
-    marginBottom: 14,
+    marginBottom: 13,
   },
 
   codeContainer: {
     width: '100%',
     backgroundColor: '#f8fafc',
-    borderRadius: 10,
-    padding: 12,
+    borderRadius: 11,
+    padding: 11,
     alignItems: 'center',
   },
 
   codeLabel: {
-    color: '#64748b',
-    fontSize: 11,
-    fontWeight: '700',
-    marginBottom: 4,
+    color: '#94a3b8',
+    fontSize: 8,
+    fontWeight: '900',
+    letterSpacing: 1,
+    marginBottom: 3,
   },
 
   codeValue: {
-    color: '#111827',
-    fontSize: 20,
+    color: '#0f172a',
+    fontSize: 18,
     fontWeight: '900',
     letterSpacing: 1,
   },
 
+  /*
+   * =========================================================
+   * BUTTONS
+   * =========================================================
+   */
+
   spinButton: {
     width: '100%',
-    backgroundColor: '#111827',
-    borderRadius: 14,
+    backgroundColor: '#0f172a',
+    borderRadius: 15,
     paddingVertical: 16,
     alignItems: 'center',
+    shadowColor: '#0f172a',
+    shadowOffset: {
+      width: 0,
+      height: 5,
+    },
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    elevation: 3,
   },
 
   spinButtonDisabled: {
-    opacity: 0.5,
+    opacity: 0.45,
   },
 
   spinButtonText: {
     color: '#ffffff',
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '900',
+    letterSpacing: 0.7,
   },
 
   resultRouteButton: {
     width: '100%',
-    backgroundColor: '#16a34a',
-    borderRadius: 14,
-    paddingVertical: 16,
+    flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 12,
+    justifyContent: 'center',
+    backgroundColor: '#16a34a',
+    borderRadius: 15,
+    paddingVertical: 16,
+    marginTop: 10,
   },
 
   resultRouteButtonText: {
     color: '#ffffff',
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '900',
+    letterSpacing: 0.6,
+  },
+
+  resultRouteArrow: {
+    color: '#ffffff',
+    fontSize: 18,
+    fontWeight: '900',
+    marginLeft: 8,
+  },
+
+  /*
+   * =========================================================
+   * DEMO NOTE
+   * =========================================================
+   */
+
+  demoNote: {
+    color: '#94a3b8',
+    fontSize: 9,
+    textAlign: 'center',
+    lineHeight: 14,
+    marginTop: 13,
   },
 });

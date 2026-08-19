@@ -12,17 +12,37 @@ export default function SalesLayout() {
     >
       <Stack.Screen
         name="index"
-        options={{ title: 'Home' }}
+        options={{
+          title: 'Home',
+        }}
       />
 
       <Stack.Screen
         name="stores"
-        options={{ title: 'Select Store' }}
+        options={{
+          title: 'Select Store',
+        }}
+      />
+
+      <Stack.Screen
+        name="add-store"
+        options={{
+          title: 'Add Store',
+        }}
+      />
+
+      <Stack.Screen
+        name="store-details"
+        options={{
+          title: 'Store Details',
+        }}
       />
 
       <Stack.Screen
         name="attendance/index"
-        options={{ title: 'Attendance' }}
+        options={{
+          title: 'Attendance',
+        }}
       />
 
       <Stack.Screen
@@ -35,27 +55,37 @@ export default function SalesLayout() {
 
       <Stack.Screen
         name="attendance/preview"
-        options={{ title: 'Preview' }}
+        options={{
+          title: 'Preview',
+        }}
       />
 
       <Stack.Screen
         name="attendance/result"
-        options={{ title: 'Result' }}
+        options={{
+          title: 'Result',
+        }}
       />
 
       <Stack.Screen
         name="spin/index"
-        options={{ title: 'Spin Wheel' }}
+        options={{
+          title: 'Spin Wheel',
+        }}
       />
 
       <Stack.Screen
         name="spin/result"
-        options={{ title: 'Reward' }}
+        options={{
+          title: 'Reward',
+        }}
       />
 
       <Stack.Screen
         name="history"
-        options={{ title: 'History' }}
+        options={{
+          title: 'History',
+        }}
       />
     </Stack>
   );

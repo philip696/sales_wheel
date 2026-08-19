@@ -22,7 +22,24 @@ import {
 import { ScreenContainer } from '@/src/components/ScreenContainer';
 import { supabase } from '@/src/lib/supabase';
 
-const ATTENDANCE_BUCKET = 'attendance-photos';
+const ATTENDANCE_BUCKET =
+  'attendance-photos';
+
+/*
+ * ================================================================
+ * DEMO MODE
+ * ================================================================
+ *
+ * Set to true for the client demo.
+ *
+ * In demo mode:
+ * - Attendance and order results are FAKE frontend-only data.
+ * - No fake attendance/spin records are written to Supabase.
+ * - The salesperson profile can still be read from Supabase.
+ *
+ * Set to false when you are ready to use real backend data again.
+ */
+const DEMO_MODE = true;
 
 /*
  * ================================================================
@@ -37,57 +54,32 @@ type SalesUser = {
 };
 
 type Attendance = {
-  id?: string;
-
+  id: string;
   sales_id: string;
-
-  status: string | null;
-
+  store_id: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  gps_accuracy: number | null;
+  distance_meters: number | null;
+  photo_path: string | null;
+  photo_url: string | null;
+  client_captured_at: string | null;
   created_at: string | null;
+  server_created_at?: string | null;
+  status: string | null;
+  rejection_reason: string | null;
+};
 
-  server_created_at: string | null;
-
-  photo_path?: string | null;
-
-  photo_url?: string | null;
-
-  latitude?: number | null;
-
-  longitude?: number | null;
-
-  gps_accuracy?: number | null;
-
-  distance_meters?: number | null;
-
-  client_captured_at?: string | null;
-
-  rejection_reason?: string | null;
-
-  store_id?: string | null;
-
-  /*
-   * IMPORTANT:
-   *
-   * We are NOT selecting attendance.order_placed.
-   *
-   * This optional frontend value allows the screen to
-   * understand an order value if the backend already
-   * returns one through another existing mechanism.
-   *
-   * It does not require a database migration.
-   */
-  orderStatus?: boolean | string | null;
-
-  /*
-   * Allow existing backend fields to remain available
-   * without changing the backend.
-   */
-  [key: string]: unknown;
+type SpinRecord = {
+  id: string;
+  attendance_id: string | null;
 };
 
 type DayStatus =
   | 'order'
   | 'no_order'
+  | 'absent'
+  | 'no_attendance'
   | 'future';
 
 type CalendarDay = {
@@ -135,8 +127,11 @@ const WEEK_DAYS = [
  * ================================================================
  */
 
-const formatDateKey = (date: Date) => {
-  const year = date.getFullYear();
+const formatDateKey = (
+  date: Date,
+) => {
+  const year =
+    date.getFullYear();
 
   const month = String(
     date.getMonth() + 1,
@@ -149,8 +144,11 @@ const formatDateKey = (date: Date) => {
   return `${year}-${month}-${day}`;
 };
 
-const isFutureDate = (date: Date) => {
-  const today = new Date();
+const isFutureDate = (
+  date: Date,
+) => {
+  const today =
+    new Date();
 
   return (
     formatDateKey(date) >
@@ -160,109 +158,55 @@ const isFutureDate = (date: Date) => {
 
 /*
  * ================================================================
+ * ABSENCE DETECTION
+ * ================================================================
+ *
+ * Yellow means:
+ *
+ * attendance record exists
+ * +
+ * attendance is absent/rejected
+ * +
+ * no order
+ *
+ * We support the status values currently used
+ * by your attendance system.
+ */
+
+const isAbsentAttendance = (
+  attendance: Attendance,
+): boolean => {
+  const status =
+    attendance.status
+      ?.trim()
+      .toLowerCase();
+
+  return (
+    status === 'absent' ||
+    status === 'rejected'
+  );
+};
+
+/*
+ * ================================================================
  * ORDER DETECTION
  * ================================================================
  *
- * IMPORTANT:
+ * A visit counts as ORDER when:
  *
- * We do NOT use:
+ * spins.attendance_id === attendance.id
  *
- * attendance.order_placed
- *
- * because that column does not exist in your current backend.
- *
- * Instead, this function checks whether the returned attendance
- * object already contains an order-related value.
- *
- * If nothing exists, it returns false.
- *
- * This keeps the existing attendance query intact.
- * ================================================================
+ * This uses the same relationship already used
+ * by your Sales History screen.
  */
 
-const getOrderStatus = (
+const hasOrderForAttendance = (
   attendance: Attendance,
+  orderAttendanceIds: Set<string>,
 ): boolean => {
-  /*
-   * Direct frontend value if available.
-   */
-  if (
-    typeof attendance.orderStatus ===
-    'boolean'
-  ) {
-    return attendance.orderStatus;
-  }
-
-  /*
-   * Possible existing backend values.
-   *
-   * These are only read from the returned object.
-   * They are NOT requested as columns.
-   */
-
-  const possibleValues = [
-    attendance.order_status,
-    attendance.shop_order,
-    attendance.has_order,
-    attendance.hasOrder,
-    attendance.order,
-    attendance.orderPlaced,
-  ];
-
-  for (const value of possibleValues) {
-    if (
-      typeof value === 'boolean'
-    ) {
-      return value;
-    }
-
-    if (
-      typeof value === 'number'
-    ) {
-      return value === 1;
-    }
-
-    if (
-      typeof value === 'string'
-    ) {
-      const normalized =
-        value
-          .trim()
-          .toLowerCase();
-
-      if (
-        [
-          'yes',
-          'true',
-          'ordered',
-          'order',
-          'placed',
-          '1',
-        ].includes(normalized)
-      ) {
-        return true;
-      }
-
-      if (
-        [
-          'no',
-          'false',
-          'none',
-          'no order',
-          'not ordered',
-          '0',
-        ].includes(normalized)
-      ) {
-        return false;
-      }
-    }
-  }
-
-  /*
-   * No order information exists in the
-   * current attendance response.
-   */
-  return false;
+  return orderAttendanceIds.has(
+    attendance.id,
+  );
 };
 
 /*
@@ -270,45 +214,86 @@ const getOrderStatus = (
  * GET DAY STATUS
  * ================================================================
  *
- * New calendar meaning:
+ * GREEN:
+ *   Attendance + order
  *
- * 🟩 Green  = Order
- * 🟥 Red    = No Order
- * ⬜ White  = Future
+ * RED:
+ *   Attendance + no order + normal attendance
  *
- * Multiple visits:
+ * YELLOW:
+ *   Attendance + absent/rejected + no order
  *
- * If ANY visit on that date has an order,
- * the entire day becomes green.
+ * BROWN:
+ *   No attendance
  *
- * Otherwise the day is red.
+ * WHITE:
+ *   Future
  * ================================================================
  */
 
 const getDayStatus = (
   records: Attendance[],
   date: Date,
+  orderAttendanceIds: Set<string>,
 ): DayStatus => {
-  if (
-    isFutureDate(date) &&
-    records.length === 0
-  ) {
+  /*
+   * Future date always stays white.
+   */
+
+  if (isFutureDate(date)) {
     return 'future';
   }
 
+  /*
+   * No attendance at all.
+   *
+   * This is BROWN.
+   */
+
   if (records.length === 0) {
-    return 'no_order';
+    return 'no_attendance';
   }
+
+  /*
+   * If ANY attendance on this date
+   * has an order, the day is GREEN.
+   */
 
   const hasOrder =
     records.some(
       (record) =>
-        getOrderStatus(record),
+        hasOrderForAttendance(
+          record,
+          orderAttendanceIds,
+        ),
     );
 
   if (hasOrder) {
     return 'order';
   }
+
+  /*
+   * If there is no order and the attendance
+   * is absent/rejected, make it YELLOW.
+   */
+
+  const hasAbsent =
+    records.some(
+      (record) =>
+        isAbsentAttendance(
+          record,
+        ),
+    );
+
+  if (hasAbsent) {
+    return 'absent';
+  }
+
+  /*
+   * Attendance exists but no order.
+   *
+   * This is RED.
+   */
 
   return 'no_order';
 };
@@ -367,23 +352,20 @@ const getAttendancePhotoUrl =
       const {
         data,
         error,
-      } = await supabase.storage
-        .from(
-          ATTENDANCE_BUCKET,
-        )
-        .createSignedUrl(
-          photoPath,
-          60 * 60,
-        );
+      } =
+        await supabase.storage
+          .from(
+            ATTENDANCE_BUCKET,
+          )
+          .createSignedUrl(
+            photoPath,
+            60 * 60,
+          );
 
       if (error) {
         console.error(
           'ATTENDANCE PHOTO ERROR:',
-          {
-            photoPath,
-            message:
-              error.message,
-          },
+          error,
         );
 
         return null;
@@ -434,6 +416,148 @@ const addPhotoUrls = async (
 
 /*
  * ================================================================
+ * DEMO DATA
+ * ================================================================
+ *
+ * Frontend-only demo data.
+ *
+ * GREEN  = Order
+ * RED    = No Order
+ * YELLOW = Absent / No Order
+ * BROWN  = No Attendance
+ * WHITE  = Future
+ *
+ * We generate the dates dynamically for the currently displayed
+ * month, so the demo continues to work even if the client opens it
+ * in a different month.
+ */
+
+const createDemoAttendance = (
+  salesId: string,
+  year: number,
+  monthIndex: number,
+  day: number,
+  status: 'approved' | 'absent',
+  index: number,
+): Attendance => {
+  const date = new Date(
+    year,
+    monthIndex,
+    day,
+    9 + (index % 4),
+    15,
+    0,
+    0,
+  );
+
+  const dateIso = date.toISOString();
+
+  return {
+    id: `demo-attendance-${year}-${monthIndex + 1}-${day}`,
+    sales_id: salesId,
+    store_id: `demo-store-${index + 1}`,
+    latitude: -7.2575,
+    longitude: 112.7521,
+    gps_accuracy: status === 'absent' ? 18.4 : 7.2,
+    distance_meters: status === 'absent' ? 42.5 : 8.6,
+    photo_path: null,
+    photo_url: null,
+    client_captured_at: dateIso,
+    created_at: dateIso,
+    server_created_at: dateIso,
+    status,
+    rejection_reason:
+      status === 'absent'
+        ? 'Demo: salesperson was marked absent.'
+        : null,
+  };
+};
+
+const createDemoData = (
+  salesId: string,
+  year: number,
+  monthIndex: number,
+) => {
+  /*
+   * These dates are intentionally spread out so the client can
+   * immediately see all four calendar states.
+   *
+   * Order dates:
+   * 1, 7, 12, 18
+   *
+   * No-order dates:
+   * 3, 9, 16
+   *
+   * Absent / no-order dates:
+   * 5, 14
+   *
+   * Every other past date = No Attendance (brown).
+   */
+  const orderDays = [1, 7, 12, 18];
+  const noOrderDays = [3, 9, 16];
+  const absentDays = [5, 14];
+
+  const demoAttendance: Attendance[] = [];
+  const demoOrderIds = new Set<string>();
+
+  let index = 0;
+
+  for (const day of orderDays) {
+    const record = createDemoAttendance(
+      salesId,
+      year,
+      monthIndex,
+      day,
+      'approved',
+      index++,
+    );
+
+    demoAttendance.push(record);
+    demoOrderIds.add(record.id);
+  }
+
+  for (const day of noOrderDays) {
+    demoAttendance.push(
+      createDemoAttendance(
+        salesId,
+        year,
+        monthIndex,
+        day,
+        'approved',
+        index++,
+      ),
+    );
+  }
+
+  for (const day of absentDays) {
+    demoAttendance.push(
+      createDemoAttendance(
+        salesId,
+        year,
+        monthIndex,
+        day,
+        'absent',
+        index++,
+      ),
+    );
+  }
+
+  return {
+    attendance: demoAttendance.sort(
+      (a, b) =>
+        new Date(
+          b.server_created_at ?? b.created_at ?? 0,
+        ).getTime() -
+        new Date(
+          a.server_created_at ?? a.created_at ?? 0,
+        ).getTime(),
+    ),
+    orderIds: demoOrderIds,
+  };
+};
+
+/*
+ * ================================================================
  * MAIN SCREEN
  * ================================================================
  */
@@ -453,159 +577,246 @@ export default function AdminSalesCalendarScreen() {
     );
 
   const [attendance, setAttendance] =
-    useState<Attendance[]>([]);
+    useState<Attendance[]>(
+      [],
+    );
+
+  const [
+    orderAttendanceIds,
+    setOrderAttendanceIds,
+  ] = useState<Set<string>>(
+    new Set(),
+  );
 
   const [month, setMonth] =
-    useState(new Date());
+    useState(
+      new Date(),
+    );
 
   const [selectedDay, setSelectedDay] =
     useState<CalendarDay | null>(
       null,
     );
 
-  const [modalVisible, setModalVisible] =
-    useState(false);
+  const [
+    modalVisible,
+    setModalVisible,
+  ] = useState(false);
 
   const [loading, setLoading] =
     useState(true);
 
   const [error, setError] =
-    useState<string | null>(null);
+    useState<string | null>(
+      null,
+    );
 
   /*
    * ==============================================================
    * LOAD DATA
    * ==============================================================
-   *
-   * Backend logic remains the same.
-   *
-   * We only read:
-   *
-   * sales
-   * attendance
-   *
-   * No backend updates.
-   * No migrations.
-   * No order_placed column.
-   * ==============================================================
    */
 
-  const fetchData = useCallback(
-    async () => {
-      if (!salesId) {
-        setError(
-          'Sales user ID is missing. Please return to Sales and select a salesperson again.',
-        );
-
-        setLoading(false);
-
-        return;
-      }
-
-      try {
-        setError(null);
-
-        const [
-          salesResult,
-          attendanceResult,
-        ] = await Promise.all([
-          /*
-           * Salesperson
-           */
-          supabase
-            .from('sales')
-            .select(
-              'id, name, email',
-            )
-            .eq(
-              'id',
-              salesId,
-            )
-            .single(),
-
-          /*
-           * Attendance
-           *
-           * IMPORTANT:
-           * This query deliberately uses the same
-           * existing backend fields.
-           */
-          supabase
-            .from('attendance')
-            .select(`
-              id,
-              sales_id,
-              store_id,
-              latitude,
-              longitude,
-              gps_accuracy,
-              distance_meters,
-              photo_path,
-              client_captured_at,
-              created_at,
-              status,
-              rejection_reason
-            `)
-            .eq(
-              'sales_id',
-              salesId,
-            )
-            .order(
-              'created_at',
-              {
-                ascending: false,
-              },
-            ),
-        ]);
-
-        if (
-          salesResult.error
-        ) {
-          throw salesResult.error;
-        }
-
-        if (
-          attendanceResult.error
-        ) {
-          throw attendanceResult.error;
-        }
-
-        const records =
-          (attendanceResult.data ??
-            []) as Attendance[];
-
-        /*
-         * Generate signed URLs.
-         */
-        const recordsWithPhotos =
-          await addPhotoUrls(
-            records,
+  const fetchData =
+    useCallback(
+      async () => {
+        if (!salesId) {
+          setError(
+            'Sales user ID is missing. Please return to Sales and select a salesperson again.',
           );
 
-        setSalesUser(
-          salesResult.data,
-        );
+          setLoading(false);
 
-        setAttendance(
-          recordsWithPhotos,
-        );
-      } catch (err) {
-        console.error(
-          'Failed to load sales attendance:',
-          err,
-        );
+          return;
+        }
 
-        setError(
-          err instanceof Error
-            ? err.message
-            : 'Failed to load attendance data.',
-        );
-      } finally {
-        setLoading(false);
-      }
-    },
-    [salesId],
-  );
+        try {
+          setError(null);
+
+          /*
+           * ----------------------------------------------------------
+           * DEMO MODE
+           * ----------------------------------------------------------
+           *
+           * Only the salesperson profile is read from Supabase.
+           * Attendance and spin/order data are generated locally.
+           */
+          if (DEMO_MODE) {
+            let demoSalesUser: SalesUser = {
+              id: salesId,
+              name: 'Demo Sales Representative',
+              email: 'demo@sales.com',
+            };
+
+            /*
+             * Try to use the real salesperson's name/email if the
+             * account exists. If it does not, the demo still works.
+             */
+            const { data: salesResult } = await supabase
+              .from('sales')
+              .select('id, name, email')
+              .eq('id', salesId)
+              .maybeSingle();
+
+            if (salesResult) {
+              demoSalesUser = salesResult as SalesUser;
+            }
+
+            const now = new Date();
+
+            const demoData = createDemoData(
+              salesId,
+              now.getFullYear(),
+              now.getMonth(),
+            );
+
+            setSalesUser(demoSalesUser);
+            setAttendance(demoData.attendance);
+            setOrderAttendanceIds(demoData.orderIds);
+
+            return;
+          }
+
+          /*
+           * ----------------------------------------------------------
+           * REAL BACKEND MODE
+           * ----------------------------------------------------------
+           *
+           * Set DEMO_MODE to false to use this section.
+           */
+
+          const [
+            salesResult,
+            attendanceResult,
+            spinsResult,
+          ] =
+            await Promise.all([
+              supabase
+                .from('sales')
+                .select(
+                  'id, name, email',
+                )
+                .eq(
+                  'id',
+                  salesId,
+                )
+                .single(),
+
+              supabase
+                .from('attendance')
+                .select(`
+                  id,
+                  sales_id,
+                  store_id,
+                  latitude,
+                  longitude,
+                  gps_accuracy,
+                  distance_meters,
+                  photo_path,
+                  client_captured_at,
+                  created_at,
+                  status,
+                  rejection_reason
+                `)
+                .eq(
+                  'sales_id',
+                  salesId,
+                )
+                .order(
+                  'created_at',
+                  {
+                    ascending:
+                      false,
+                  },
+                ),
+
+              supabase
+                .from('spins')
+                .select(
+                  'id, attendance_id',
+                )
+                .eq(
+                  'sales_id',
+                  salesId,
+                ),
+            ]);
+
+          if (
+            salesResult.error
+          ) {
+            throw salesResult.error;
+          }
+
+          if (
+            attendanceResult.error
+          ) {
+            throw attendanceResult.error;
+          }
+
+          if (
+            spinsResult.error
+          ) {
+            throw spinsResult.error;
+          }
+
+          const records =
+            (attendanceResult.data ??
+              []) as Attendance[];
+
+          const spins =
+            (spinsResult.data ??
+              []) as SpinRecord[];
+
+          const orderIds =
+            new Set(
+              spins
+                .map(
+                  (spin) =>
+                    spin.attendance_id,
+                )
+                .filter(
+                  (
+                    id,
+                  ): id is string =>
+                    typeof id ===
+                      'string' &&
+                    id.length > 0,
+                ),
+            );
+
+          const recordsWithPhotos =
+            await addPhotoUrls(
+              records,
+            );
+
+          setSalesUser(
+            salesResult.data,
+          );
+
+          setAttendance(
+            recordsWithPhotos,
+          );
+
+          setOrderAttendanceIds(
+            orderIds,
+          );
+        } catch (err) {
+          console.error(
+            'Failed to load sales attendance:',
+            err,
+          );
+
+          setError(
+            err instanceof Error
+              ? err.message
+              : 'Failed to load attendance data.',
+          );
+        } finally {
+          setLoading(false);
+        }
+      },
+      [salesId],
+    );
 
   useEffect(() => {
     fetchData();
@@ -617,17 +828,18 @@ export default function AdminSalesCalendarScreen() {
    * ==============================================================
    */
 
-  const handleGoBack = () => {
-    if (
-      router.canGoBack()
-    ) {
-      router.back();
-    } else {
-      router.replace(
-        '/admin/sales',
-      );
-    }
-  };
+  const handleGoBack =
+    () => {
+      if (
+        router.canGoBack()
+      ) {
+        router.back();
+      } else {
+        router.replace(
+          '/admin/sales',
+        );
+      }
+    };
 
   /*
    * ==============================================================
@@ -681,8 +893,9 @@ export default function AdminSalesCalendarScreen() {
       }
 
       /*
-       * Chronological order.
+       * Sort visits chronologically.
        */
+
       for (
         const [
           dateKey,
@@ -756,6 +969,7 @@ export default function AdminSalesCalendarScreen() {
       /*
        * Empty cells before day 1.
        */
+
       for (
         let i = 0;
         i < firstDay.getDay();
@@ -767,6 +981,7 @@ export default function AdminSalesCalendarScreen() {
       /*
        * Actual days.
        */
+
       for (
         let day = 1;
         day <= daysInMonth;
@@ -791,6 +1006,7 @@ export default function AdminSalesCalendarScreen() {
           getDayStatus(
             records,
             date,
+            orderAttendanceIds,
           );
 
         days.push({
@@ -807,6 +1023,7 @@ export default function AdminSalesCalendarScreen() {
     }, [
       month,
       attendanceByDate,
+      orderAttendanceIds,
     ]);
 
   /*
@@ -818,6 +1035,11 @@ export default function AdminSalesCalendarScreen() {
   const openDay = async (
     day: CalendarDay,
   ) => {
+    /*
+     * Future dates don't need
+     * another database request.
+     */
+
     if (
       day.status ===
       'future'
@@ -825,6 +1047,17 @@ export default function AdminSalesCalendarScreen() {
       setSelectedDay(day);
       setModalVisible(true);
 
+      return;
+    }
+
+    /*
+     * In demo mode, the calendar already contains all fake data.
+     * Do NOT query Supabase when a day is opened, otherwise the real
+     * backend response would replace the demo result.
+     */
+    if (DEMO_MODE) {
+      setSelectedDay(day);
+      setModalVisible(true);
       return;
     }
 
@@ -856,48 +1089,49 @@ export default function AdminSalesCalendarScreen() {
         );
 
       /*
-       * Same backend fields.
-       *
-       * No order_placed.
+       * Get exact attendance
+       * for selected day.
        */
+
       const {
         data,
         error:
           attendanceError,
-      } = await supabase
-        .from('attendance')
-        .select(`
-          id,
-          sales_id,
-          store_id,
-          latitude,
-          longitude,
-          gps_accuracy,
-          distance_meters,
-          photo_path,
-          client_captured_at,
-          created_at,
-          status,
-          rejection_reason
-        `)
-        .eq(
-          'sales_id',
-          salesId,
-        )
-        .gte(
-          'created_at',
-          startOfDay.toISOString(),
-        )
-        .lte(
-          'created_at',
-          endOfDay.toISOString(),
-        )
-        .order(
-          'created_at',
-          {
-            ascending: true,
-          },
-        );
+      } =
+        await supabase
+          .from('attendance')
+          .select(`
+            id,
+            sales_id,
+            store_id,
+            latitude,
+            longitude,
+            gps_accuracy,
+            distance_meters,
+            photo_path,
+            client_captured_at,
+            created_at,
+            status,
+            rejection_reason
+          `)
+          .eq(
+            'sales_id',
+            salesId,
+          )
+          .gte(
+            'created_at',
+            startOfDay.toISOString(),
+          )
+          .lte(
+            'created_at',
+            endOfDay.toISOString(),
+          )
+          .order(
+            'created_at',
+            {
+              ascending: true,
+            },
+          );
 
       if (
         attendanceError
@@ -911,10 +1145,74 @@ export default function AdminSalesCalendarScreen() {
             []) as Attendance[],
         );
 
+      /*
+       * Make sure we have
+       * the latest order IDs.
+       *
+       * This is especially useful
+       * if an order was created
+       * after the initial screen load.
+       */
+
+      const exactAttendanceIds =
+        exactAttendances.map(
+          (record) =>
+            record.id,
+        );
+
+      let exactOrderIds =
+        orderAttendanceIds;
+
+      if (
+        exactAttendanceIds.length >
+        0
+      ) {
+        const {
+          data: exactSpins,
+          error: exactSpinError,
+        } =
+          await supabase
+            .from('spins')
+            .select(
+              'id, attendance_id',
+            )
+            .in(
+              'attendance_id',
+              exactAttendanceIds,
+            );
+
+        if (
+          exactSpinError
+        ) {
+          throw exactSpinError;
+        }
+
+        exactOrderIds =
+          new Set(
+            (
+              (exactSpins ??
+                []) as SpinRecord[]
+            )
+              .map(
+                (spin) =>
+                  spin.attendance_id,
+              )
+              .filter(
+                (
+                  id,
+                ): id is string =>
+                  typeof id ===
+                    'string' &&
+                  id.length > 0,
+              ),
+          );
+      }
+
       const exactStatus =
         getDayStatus(
           exactAttendances,
           day.date,
+          exactOrderIds,
         );
 
       setSelectedDay({
@@ -933,8 +1231,10 @@ export default function AdminSalesCalendarScreen() {
       );
 
       /*
-       * Fallback to already loaded records.
+       * Fallback to already
+       * loaded records.
        */
+
       setSelectedDay(day);
       setModalVisible(true);
     }
@@ -959,24 +1259,46 @@ export default function AdminSalesCalendarScreen() {
 
   const goToPreviousMonth =
     () => {
-      setMonth(
-        new Date(
-          month.getFullYear(),
-          month.getMonth() - 1,
-          1,
-        ),
+      const nextMonth = new Date(
+        month.getFullYear(),
+        month.getMonth() - 1,
+        1,
       );
+
+      setMonth(nextMonth);
+
+      if (DEMO_MODE && salesId) {
+        const demoData = createDemoData(
+          salesId,
+          nextMonth.getFullYear(),
+          nextMonth.getMonth(),
+        );
+
+        setAttendance(demoData.attendance);
+        setOrderAttendanceIds(demoData.orderIds);
+      }
     };
 
   const goToNextMonth =
     () => {
-      setMonth(
-        new Date(
-          month.getFullYear(),
-          month.getMonth() + 1,
-          1,
-        ),
+      const nextMonth = new Date(
+        month.getFullYear(),
+        month.getMonth() + 1,
+        1,
       );
+
+      setMonth(nextMonth);
+
+      if (DEMO_MODE && salesId) {
+        const demoData = createDemoData(
+          salesId,
+          nextMonth.getFullYear(),
+          nextMonth.getMonth(),
+        );
+
+        setAttendance(demoData.attendance);
+        setOrderAttendanceIds(demoData.orderIds);
+      }
     };
 
   /*
@@ -997,6 +1319,7 @@ export default function AdminSalesCalendarScreen() {
         >
           <ActivityIndicator
             size="large"
+            color="#2563eb"
           />
 
           <Text
@@ -1133,6 +1456,14 @@ export default function AdminSalesCalendarScreen() {
             {salesUser?.email ||
               'No email'}
           </Text>
+
+          {DEMO_MODE ? (
+            <View style={styles.demoBadge}>
+              <Text style={styles.demoBadgeText}>
+                DEMO DATA — FRONTEND ONLY
+              </Text>
+            </View>
+          ) : null}
         </View>
 
         {/* ===================================================== */}
@@ -1169,6 +1500,20 @@ export default function AdminSalesCalendarScreen() {
                 styles.noOrder
               }
               label="No Order"
+            />
+
+            <LegendItem
+              style={
+                styles.absent
+              }
+              label="Absent"
+            />
+
+            <LegendItem
+              style={
+                styles.noAttendance
+              }
+              label="No Attendance"
             />
 
             <LegendItem
@@ -1297,7 +1642,7 @@ export default function AdminSalesCalendarScreen() {
                 }
 
                 let statusStyle =
-                  styles.noOrder;
+                  styles.noAttendance;
 
                 if (
                   day.status ===
@@ -1305,6 +1650,18 @@ export default function AdminSalesCalendarScreen() {
                 ) {
                   statusStyle =
                     styles.order;
+                } else if (
+                  day.status ===
+                  'no_order'
+                ) {
+                  statusStyle =
+                    styles.noOrder;
+                } else if (
+                  day.status ===
+                  'absent'
+                ) {
+                  statusStyle =
+                    styles.absent;
                 } else if (
                   day.status ===
                   'future'
@@ -1343,7 +1700,8 @@ export default function AdminSalesCalendarScreen() {
                         }
                       </Text>
 
-                      {day.attendance
+                      {day
+                        .attendance
                         .length >
                         1 && (
                         <View
@@ -1497,17 +1855,17 @@ export default function AdminSalesCalendarScreen() {
                     }
                   >
                     No store visit can
-                    exist for this date
-                    yet.
+                    exist for this
+                    date yet.
                   </Text>
                 </View>
               )}
 
-            {/* No visits */}
+            {/* No attendance */}
 
             {selectedDay &&
               selectedDay.status ===
-                'no_order' &&
+                'no_attendance' &&
               selectedDay.attendance
                 .length ===
                 0 && (
@@ -1519,7 +1877,7 @@ export default function AdminSalesCalendarScreen() {
                   <View
                     style={[
                       styles.messageIcon,
-                      styles.noOrder,
+                      styles.noAttendance,
                     ]}
                   >
                     <Text
@@ -1527,7 +1885,7 @@ export default function AdminSalesCalendarScreen() {
                         styles.messageIconText
                       }
                     >
-                      !
+                      —
                     </Text>
                   </View>
 
@@ -1536,7 +1894,7 @@ export default function AdminSalesCalendarScreen() {
                       styles.messageTitle
                     }
                   >
-                    No store visit
+                    No Attendance
                   </Text>
 
                   <Text
@@ -1623,6 +1981,10 @@ export default function AdminSalesCalendarScreen() {
                           salesUser?.name ||
                           'Sales User'
                         }
+                        hasOrder={hasOrderForAttendance(
+                          record,
+                          orderAttendanceIds,
+                        )}
                       />
                     ),
                   )}
@@ -1699,15 +2061,50 @@ function AttendanceCard({
   attendance,
   index,
   salesName,
+  hasOrder,
 }: {
   attendance: Attendance;
   index: number;
   salesName: string;
+  hasOrder: boolean;
 }) {
-  const hasOrder =
-    getOrderStatus(
+  const isAbsent =
+    isAbsentAttendance(
       attendance,
     );
+
+  /*
+   * Determine badge.
+   */
+
+  let badgeStyle =
+    styles.noOrder;
+
+  let badgeTextStyle =
+    styles.orderBadgeTextRed;
+
+  let badgeText =
+    'NO ORDER';
+
+  if (hasOrder) {
+    badgeStyle =
+      styles.order;
+
+    badgeTextStyle =
+      styles.orderBadgeTextGreen;
+
+    badgeText =
+      'ORDER';
+  } else if (isAbsent) {
+    badgeStyle =
+      styles.absent;
+
+    badgeTextStyle =
+      styles.orderBadgeTextYellow;
+
+    badgeText =
+      'ABSENT';
+  }
 
   return (
     <View
@@ -1749,7 +2146,8 @@ function AttendanceCard({
                 styles.storeIdText
               }
             >
-              Store ID: {attendance.store_id}
+              Store ID:{' '}
+              {attendance.store_id}
             </Text>
           ) : null}
         </View>
@@ -1757,22 +2155,16 @@ function AttendanceCard({
         <View
           style={[
             styles.orderBadge,
-            hasOrder
-              ? styles.order
-              : styles.noOrder,
+            badgeStyle,
           ]}
         >
           <Text
             style={[
               styles.orderBadgeText,
-              hasOrder
-                ? styles.orderBadgeTextGreen
-                : styles.orderBadgeTextRed,
+              badgeTextStyle,
             ]}
           >
-            {hasOrder
-              ? 'ORDER'
-              : 'NO ORDER'}
+            {badgeText}
           </Text>
         </View>
       </View>
@@ -1780,6 +2172,9 @@ function AttendanceCard({
       <AttendanceDetails
         attendance={
           attendance
+        }
+        hasOrder={
+          hasOrder
         }
       />
     </View>
@@ -1794,8 +2189,10 @@ function AttendanceCard({
 
 function AttendanceDetails({
   attendance,
+  hasOrder,
 }: {
   attendance: Attendance;
+  hasOrder: boolean;
 }) {
   const timestamp =
     attendance.server_created_at ??
@@ -1829,10 +2226,52 @@ function AttendanceDetails({
       ? parsedDate.toLocaleTimeString()
       : 'Not available';
 
-  const hasOrder =
-    getOrderStatus(
+  const isAbsent =
+    isAbsentAttendance(
       attendance,
     );
+
+  /*
+   * Determine order display.
+   */
+
+  let resultText =
+    'NO ORDER';
+
+  let resultStyle =
+    styles.noOrderText;
+
+  let resultIcon =
+    '×';
+
+  let resultIconStyle =
+    styles.noOrder;
+
+  if (hasOrder) {
+    resultText =
+      'ORDER';
+
+    resultStyle =
+      styles.orderText;
+
+    resultIcon =
+      '✓';
+
+    resultIconStyle =
+      styles.order;
+  } else if (isAbsent) {
+    resultText =
+      'ABSENT / NO ORDER';
+
+    resultStyle =
+      styles.absentText;
+
+    resultIcon =
+      '—';
+
+    resultIconStyle =
+      styles.absent;
+  }
 
   return (
     <View
@@ -1880,7 +2319,7 @@ function AttendanceDetails({
               <Text
                 style={
                   styles.noPhotoText
-              }
+                }
               >
                 No photo
               </Text>
@@ -1899,9 +2338,7 @@ function AttendanceDetails({
         <View
           style={[
             styles.orderResultIcon,
-            hasOrder
-              ? styles.order
-              : styles.noOrder,
+            resultIconStyle,
           ]}
         >
           <Text
@@ -1909,9 +2346,7 @@ function AttendanceDetails({
               styles.orderResultIconText
             }
           >
-            {hasOrder
-              ? '✓'
-              : '×'}
+            {resultIcon}
           </Text>
         </View>
 
@@ -1925,20 +2360,16 @@ function AttendanceDetails({
               styles.orderResultLabel
             }
           >
-            SHOP ORDER
+            SHOP RESULT
           </Text>
 
           <Text
             style={[
               styles.orderResultValue,
-              hasOrder
-                ? styles.orderText
-                : styles.noOrderText,
+              resultStyle,
             ]}
           >
-            {hasOrder
-              ? 'ORDER'
-              : 'NO ORDER'}
+            {resultText}
           </Text>
         </View>
       </View>
@@ -2070,605 +2501,736 @@ function DetailRow({
  * ================================================================
  */
 
-const styles = StyleSheet.create({
-  container: {
-    padding: 16,
-    paddingBottom: 40,
-  },
-
-  center: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 24,
-  },
-
-  loadingText: {
-    marginTop: 12,
-    color: '#64748b',
-  },
-
-  backLink: {
-    marginBottom: 16,
-  },
-
-  backLinkText: {
-    color: '#2563eb',
-    fontSize: 15,
-    fontWeight: '600',
-  },
-
-  salesCard: {
-    backgroundColor: '#ffffff',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-  },
-
-  salesName: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: '#0f172a',
-  },
-
-  salesEmail: {
-    marginTop: 4,
-    fontSize: 14,
-    color: '#64748b',
-  },
-
-  /* ========================================================= */
-  /* LEGEND */
-  /* ========================================================= */
-
-  legendCard: {
-    backgroundColor: '#ffffff',
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-  },
-
-  legendTitle: {
-    fontSize: 10,
-    fontWeight: '900',
-    color: '#94a3b8',
-    letterSpacing: 1,
-    marginBottom: 10,
-  },
-
-  legend: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 16,
-  },
-
-  legendItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-
-  legendDot: {
-    width: 14,
-    height: 14,
-    borderRadius: 4,
-  },
-
-  legendText: {
-    fontSize: 12,
-    color: '#475569',
-    fontWeight: '600',
-  },
-
-  /* ========================================================= */
-  /* CALENDAR */
-  /* ========================================================= */
-
-  calendarCard: {
-    backgroundColor: '#ffffff',
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-  },
-
-  monthHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 18,
-  },
-
-  monthTitle: {
-    fontSize: 19,
-    fontWeight: '700',
-    color: '#0f172a',
-  },
-
-  monthButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#f1f5f9',
-  },
-
-  monthButtonText: {
-    fontSize: 26,
-    color: '#0f172a',
-  },
-
-  weekHeader: {
-    flexDirection: 'row',
-    marginBottom: 8,
-  },
-
-  weekDay: {
-    width: '14.2857%',
-    alignItems: 'center',
-  },
-
-  weekDayText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#64748b',
-  },
-
-  calendarGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-  },
-
-  dayCell: {
-    width: '14.2857%',
-    aspectRatio: 1,
-    padding: 3,
-  },
-
-  dayBox: {
-    flex: 1,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    position: 'relative',
-  },
-
-  dayNumber: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#0f172a',
-  },
-
-  countBadge: {
-    position: 'absolute',
-    top: 3,
-    right: 3,
-    minWidth: 17,
-    height: 17,
-    paddingHorizontal: 3,
-    borderRadius: 9,
-    backgroundColor: '#0f172a',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  countBadgeText: {
-    color: '#ffffff',
-    fontSize: 9,
-    fontWeight: '800',
-  },
-
-  /* ========================================================= */
-  /* ORDER COLORS */
-  /* ========================================================= */
-
-  order: {
-    backgroundColor: '#bbf7d0',
-  },
-
-  noOrder: {
-    backgroundColor: '#fecaca',
-  },
-
-  future: {
-    backgroundColor: '#ffffff',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-  },
-
-  /* ========================================================= */
-  /* ERROR */
-  /* ========================================================= */
-
-  errorTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#991b1b',
-  },
-
-  errorText: {
-    marginTop: 8,
-    textAlign: 'center',
-    color: '#7f1d1d',
-  },
-
-  backButton: {
-    marginTop: 20,
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 8,
-    backgroundColor: '#0f172a',
-  },
-
-  backButtonText: {
-    color: '#ffffff',
-    fontWeight: '600',
-  },
-
-  /* ========================================================= */
-  /* MODAL */
-  /* ========================================================= */
-
-  modalOverlay: {
-    flex: 1,
-    backgroundColor:
-      'rgba(15, 23, 42, 0.55)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 20,
-  },
-
-  modalCard: {
-    width: '100%',
-    maxWidth: 520,
-    maxHeight: '90%',
-    backgroundColor: '#ffffff',
-    borderRadius: 16,
-    padding: 18,
-  },
-
-  modalHeader: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    marginBottom: 18,
-  },
-
-  modalHeaderText: {
-    flex: 1,
-  },
-
-  modalTitle: {
-    fontSize: 21,
-    fontWeight: '700',
-    color: '#0f172a',
-  },
-
-  modalDate: {
-    marginTop: 4,
-    fontSize: 14,
-    color: '#64748b',
-  },
-
-  closeButton: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#f1f5f9',
-  },
-
-  closeButtonText: {
-    fontSize: 25,
-    lineHeight: 28,
-    color: '#334155',
-  },
-
-  /* ========================================================= */
-  /* MESSAGE */
-  /* ========================================================= */
-
-  messageCard: {
-    padding: 18,
-    borderRadius: 12,
-    backgroundColor: '#f8fafc',
-    alignItems: 'center',
-  },
-
-  messageIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 12,
-  },
-
-  messageIconText: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#0f172a',
-  },
-
-  messageTitle: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: '#0f172a',
-    textAlign: 'center',
-  },
-
-  messageText: {
-    marginTop: 7,
-    fontSize: 14,
-    lineHeight: 21,
-    color: '#64748b',
-    textAlign: 'center',
-  },
-
-  /* ========================================================= */
-  /* ATTENDANCE LIST */
-  /* ========================================================= */
-
-  attendanceList: {
-    maxHeight: 530,
-  },
-
-  attendanceListContent: {
-    paddingBottom: 4,
-    gap: 12,
-  },
-
-  recordsHeader: {
-    marginBottom: 2,
-  },
-
-  recordsTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: '#0f172a',
-  },
-
-  recordsSubtitle: {
-    marginTop: 3,
-    fontSize: 12,
-    color: '#64748b',
-  },
-
-  /* ========================================================= */
-  /* ATTENDANCE CARD */
-  /* ========================================================= */
-
-  attendanceCard: {
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    backgroundColor: '#ffffff',
-    overflow: 'hidden',
-  },
-
-  attendanceCardHeader: {
-    padding: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#f8fafc',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
-  },
-
-  attendanceCardHeaderLeft: {
-    flex: 1,
-    marginRight: 10,
-  },
-
-  attendanceCardTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#0f172a',
-  },
-
-  attendanceCardSubtitle: {
-    marginTop: 3,
-    fontSize: 13,
-    color: '#64748b',
-  },
-
-  storeIdText: {
-    marginTop: 3,
-    fontSize: 10,
-    color: '#94a3b8',
-  },
-
-  /* ========================================================= */
-  /* ORDER BADGE */
-  /* ========================================================= */
-
-  orderBadge: {
-    paddingHorizontal: 9,
-    paddingVertical: 5,
-    borderRadius: 8,
-  },
-
-  orderBadgeText: {
-    fontSize: 10,
-    fontWeight: '900',
-  },
-
-  orderBadgeTextGreen: {
-    color: '#166534',
-  },
-
-  orderBadgeTextRed: {
-    color: '#991b1b',
-  },
-
-  /* ========================================================= */
-  /* DETAILS */
-  /* ========================================================= */
-
-  details: {
-    padding: 16,
-  },
-
-  photoSection: {
-    marginBottom: 16,
-  },
-
-  photoTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#334155',
-    marginBottom: 8,
-  },
-
-  photoContainer: {
-    width: '100%',
-    height: 240,
-    borderRadius: 12,
-    overflow: 'hidden',
-    backgroundColor: '#f1f5f9',
-  },
-
-  photo: {
-    width: '100%',
-    height: '100%',
-  },
-
-  noPhoto: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  noPhotoText: {
-    color: '#64748b',
-    fontSize: 13,
-  },
-
-  /* ========================================================= */
-  /* ORDER RESULT */
-  /* ========================================================= */
-
-  orderResultBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 12,
-    borderRadius: 10,
-    backgroundColor: '#f8fafc',
-    marginBottom: 12,
-  },
-
-  orderResultIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 10,
-  },
-
-  orderResultIconText: {
-    fontSize: 21,
-    fontWeight: '900',
-    color: '#0f172a',
-  },
-
-  orderResultContent: {
-    flex: 1,
-  },
-
-  orderResultLabel: {
-    fontSize: 8,
-    fontWeight: '900',
-    color: '#94a3b8',
-    letterSpacing: 0.8,
-  },
-
-  orderResultValue: {
-    marginTop: 3,
-    fontSize: 14,
-    fontWeight: '900',
-  },
-
-  orderText: {
-    color: '#15803d',
-  },
-
-  noOrderText: {
-    color: '#b91c1c',
-  },
-
-  /* ========================================================= */
-  /* DETAIL ROW */
-  /* ========================================================= */
-
-  detailRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 16,
-    paddingVertical: 9,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
-  },
-
-  detailLabel: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#64748b',
-  },
-
-  detailValue: {
-    flex: 1,
-    fontSize: 13,
-    color: '#0f172a',
-    textAlign: 'right',
-  },
-
-  /* ========================================================= */
-  /* REJECTION */
-  /* ========================================================= */
-
-  rejectionBox: {
-    marginTop: 14,
-    padding: 12,
-    borderRadius: 8,
-    backgroundColor: '#fef2f2',
-  },
-
-  rejectionTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#991b1b',
-  },
-
-  rejectionText: {
-    marginTop: 5,
-    fontSize: 13,
-    lineHeight: 19,
-    color: '#7f1d1d',
-  },
-
-  /* ========================================================= */
-  /* DONE */
-  /* ========================================================= */
-
-  doneButton: {
-    marginTop: 16,
-    paddingVertical: 12,
-    borderRadius: 9,
-    alignItems: 'center',
-    backgroundColor: '#0f172a',
-  },
-
-  doneButtonText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#ffffff',
-  },
-});
+const styles =
+  StyleSheet.create({
+    container: {
+      padding: 16,
+      paddingBottom: 40,
+    },
+
+    center: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent:
+        'center',
+      padding: 24,
+    },
+
+    loadingText: {
+      marginTop: 12,
+      color: '#64748b',
+    },
+
+    backLink: {
+      marginBottom: 16,
+    },
+
+    backLinkText: {
+      color: '#2563eb',
+      fontSize: 15,
+      fontWeight: '600',
+    },
+
+    salesCard: {
+      backgroundColor:
+        '#ffffff',
+      borderRadius: 12,
+      padding: 16,
+      marginBottom: 16,
+      borderWidth: 1,
+      borderColor:
+        '#e2e8f0',
+    },
+
+    salesName: {
+      fontSize: 22,
+      fontWeight: '700',
+      color: '#0f172a',
+    },
+
+    salesEmail: {
+      marginTop: 4,
+      fontSize: 14,
+      color: '#64748b',
+    },
+
+    demoBadge: {
+      alignSelf: 'flex-start',
+      marginTop: 10,
+      paddingHorizontal: 9,
+      paddingVertical: 5,
+      borderRadius: 7,
+      backgroundColor: '#fef3c7',
+      borderWidth: 1,
+      borderColor: '#f59e0b',
+    },
+
+    demoBadgeText: {
+      fontSize: 9,
+      fontWeight: '900',
+      color: '#92400e',
+      letterSpacing: 0.5,
+    },
+
+    /* =========================================================
+     * LEGEND
+     * ========================================================= */
+
+    legendCard: {
+      backgroundColor:
+        '#ffffff',
+      borderRadius: 12,
+      padding: 14,
+      marginBottom: 16,
+      borderWidth: 1,
+      borderColor:
+        '#e2e8f0',
+    },
+
+    legendTitle: {
+      fontSize: 10,
+      fontWeight: '900',
+      color: '#94a3b8',
+      letterSpacing: 1,
+      marginBottom: 10,
+    },
+
+    legend: {
+      flexDirection:
+        'row',
+      flexWrap: 'wrap',
+      gap: 16,
+    },
+
+    legendItem: {
+      flexDirection:
+        'row',
+      alignItems:
+        'center',
+      gap: 6,
+    },
+
+    legendDot: {
+      width: 14,
+      height: 14,
+      borderRadius: 4,
+    },
+
+    legendText: {
+      fontSize: 12,
+      color: '#475569',
+      fontWeight: '600',
+    },
+
+    /* =========================================================
+     * CALENDAR
+     * ========================================================= */
+
+    calendarCard: {
+      backgroundColor:
+        '#ffffff',
+      borderRadius: 12,
+      padding: 16,
+      borderWidth: 1,
+      borderColor:
+        '#e2e8f0',
+    },
+
+    monthHeader: {
+      flexDirection:
+        'row',
+      alignItems:
+        'center',
+      justifyContent:
+        'space-between',
+      marginBottom: 18,
+    },
+
+    monthTitle: {
+      fontSize: 19,
+      fontWeight: '700',
+      color: '#0f172a',
+    },
+
+    monthButton: {
+      width: 38,
+      height: 38,
+      borderRadius: 8,
+      alignItems:
+        'center',
+      justifyContent:
+        'center',
+      backgroundColor:
+        '#f1f5f9',
+    },
+
+    monthButtonText: {
+      fontSize: 26,
+      color: '#0f172a',
+    },
+
+    weekHeader: {
+      flexDirection:
+        'row',
+      marginBottom: 8,
+    },
+
+    weekDay: {
+      width:
+        '14.2857%',
+      alignItems:
+        'center',
+    },
+
+    weekDayText: {
+      fontSize: 11,
+      fontWeight: '600',
+      color: '#64748b',
+    },
+
+    calendarGrid: {
+      flexDirection:
+        'row',
+      flexWrap: 'wrap',
+    },
+
+    dayCell: {
+      width:
+        '14.2857%',
+      aspectRatio: 1,
+      padding: 3,
+    },
+
+    dayBox: {
+      flex: 1,
+      borderRadius: 8,
+      alignItems:
+        'center',
+      justifyContent:
+        'center',
+      position:
+        'relative',
+    },
+
+    dayNumber: {
+      fontSize: 14,
+      fontWeight: '700',
+      color: '#0f172a',
+    },
+
+    countBadge: {
+      position:
+        'absolute',
+      top: 3,
+      right: 3,
+      minWidth: 17,
+      height: 17,
+      paddingHorizontal: 3,
+      borderRadius: 9,
+      backgroundColor:
+        '#0f172a',
+      alignItems:
+        'center',
+      justifyContent:
+        'center',
+    },
+
+    countBadgeText: {
+      color: '#ffffff',
+      fontSize: 9,
+      fontWeight: '800',
+    },
+
+    /* =========================================================
+     * STATUS COLORS
+     * ========================================================= */
+
+    /*
+     * GREEN = ORDER
+     */
+
+    order: {
+      backgroundColor:
+        '#bbf7d0',
+    },
+
+    /*
+     * RED = ATTENDED BUT NO ORDER
+     */
+
+    noOrder: {
+      backgroundColor:
+        '#fecaca',
+    },
+
+    /*
+     * YELLOW = ABSENT
+     */
+
+    absent: {
+      backgroundColor:
+        '#fef08a',
+    },
+
+    /*
+     * BROWN = NO ATTENDANCE
+     */
+
+    noAttendance: {
+      backgroundColor:
+        '#d6b08a',
+    },
+
+    /*
+     * WHITE = FUTURE
+     */
+
+    future: {
+      backgroundColor:
+        '#ffffff',
+      borderWidth: 1,
+      borderColor:
+        '#e2e8f0',
+    },
+
+    /* =========================================================
+     * ERROR
+     * ========================================================= */
+
+    errorTitle: {
+      fontSize: 18,
+      fontWeight: '700',
+      color: '#991b1b',
+      textAlign:
+        'center',
+    },
+
+    errorText: {
+      marginTop: 8,
+      textAlign:
+        'center',
+      color: '#7f1d1d',
+    },
+
+    backButton: {
+      marginTop: 20,
+      paddingHorizontal: 20,
+      paddingVertical: 12,
+      borderRadius: 8,
+      backgroundColor:
+        '#0f172a',
+    },
+
+    backButtonText: {
+      color: '#ffffff',
+      fontWeight: '600',
+    },
+
+    /* =========================================================
+     * MODAL
+     * ========================================================= */
+
+    modalOverlay: {
+      flex: 1,
+      backgroundColor:
+        'rgba(15, 23, 42, 0.55)',
+      alignItems:
+        'center',
+      justifyContent:
+        'center',
+      padding: 20,
+    },
+
+    modalCard: {
+      width: '100%',
+      maxWidth: 520,
+      maxHeight: '90%',
+      backgroundColor:
+        '#ffffff',
+      borderRadius: 16,
+      padding: 18,
+    },
+
+    modalHeader: {
+      flexDirection:
+        'row',
+      alignItems:
+        'flex-start',
+      justifyContent:
+        'space-between',
+      marginBottom: 18,
+    },
+
+    modalHeaderText: {
+      flex: 1,
+    },
+
+    modalTitle: {
+      fontSize: 21,
+      fontWeight: '700',
+      color: '#0f172a',
+    },
+
+    modalDate: {
+      marginTop: 4,
+      fontSize: 14,
+      color: '#64748b',
+    },
+
+    closeButton: {
+      width: 34,
+      height: 34,
+      borderRadius: 17,
+      alignItems:
+        'center',
+      justifyContent:
+        'center',
+      backgroundColor:
+        '#f1f5f9',
+    },
+
+    closeButtonText: {
+      fontSize: 25,
+      lineHeight: 28,
+      color: '#334155',
+    },
+
+    /* =========================================================
+     * MESSAGE
+     * ========================================================= */
+
+    messageCard: {
+      padding: 18,
+      borderRadius: 12,
+      backgroundColor:
+        '#f8fafc',
+      alignItems:
+        'center',
+    },
+
+    messageIcon: {
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      alignItems:
+        'center',
+      justifyContent:
+        'center',
+      marginBottom: 12,
+    },
+
+    messageIconText: {
+      fontSize: 20,
+      fontWeight: '700',
+      color: '#0f172a',
+    },
+
+    messageTitle: {
+      fontSize: 17,
+      fontWeight: '700',
+      color: '#0f172a',
+      textAlign:
+        'center',
+    },
+
+    messageText: {
+      marginTop: 7,
+      fontSize: 14,
+      lineHeight: 21,
+      color: '#64748b',
+      textAlign:
+        'center',
+    },
+
+    /* =========================================================
+     * ATTENDANCE LIST
+     * ========================================================= */
+
+    attendanceList: {
+      maxHeight: 530,
+    },
+
+    attendanceListContent: {
+      paddingBottom: 4,
+      gap: 12,
+    },
+
+    recordsHeader: {
+      marginBottom: 2,
+    },
+
+    recordsTitle: {
+      fontSize: 16,
+      fontWeight: '800',
+      color: '#0f172a',
+    },
+
+    recordsSubtitle: {
+      marginTop: 3,
+      fontSize: 12,
+      color: '#64748b',
+    },
+
+    /* =========================================================
+     * ATTENDANCE CARD
+     * ========================================================= */
+
+    attendanceCard: {
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor:
+        '#e2e8f0',
+      backgroundColor:
+        '#ffffff',
+      overflow:
+        'hidden',
+    },
+
+    attendanceCardHeader: {
+      padding: 16,
+      flexDirection:
+        'row',
+      alignItems:
+        'center',
+      justifyContent:
+        'space-between',
+      backgroundColor:
+        '#f8fafc',
+      borderBottomWidth: 1,
+      borderBottomColor:
+        '#e2e8f0',
+    },
+
+    attendanceCardHeaderLeft: {
+      flex: 1,
+      marginRight: 10,
+    },
+
+    attendanceCardTitle: {
+      fontSize: 16,
+      fontWeight: '700',
+      color: '#0f172a',
+    },
+
+    attendanceCardSubtitle: {
+      marginTop: 3,
+      fontSize: 13,
+      color: '#64748b',
+    },
+
+    storeIdText: {
+      marginTop: 3,
+      fontSize: 10,
+      color: '#94a3b8',
+    },
+
+    /* =========================================================
+     * ORDER BADGE
+     * ========================================================= */
+
+    orderBadge: {
+      paddingHorizontal: 9,
+      paddingVertical: 5,
+      borderRadius: 8,
+    },
+
+    orderBadgeText: {
+      fontSize: 10,
+      fontWeight: '900',
+    },
+
+    orderBadgeTextGreen: {
+      color: '#166534',
+    },
+
+    orderBadgeTextRed: {
+      color: '#991b1b',
+    },
+
+    orderBadgeTextYellow: {
+      color: '#854d0e',
+    },
+
+    /* =========================================================
+     * DETAILS
+     * ========================================================= */
+
+    details: {
+      padding: 16,
+    },
+
+    photoSection: {
+      marginBottom: 16,
+    },
+
+    photoTitle: {
+      fontSize: 13,
+      fontWeight: '700',
+      color: '#334155',
+      marginBottom: 8,
+    },
+
+    photoContainer: {
+      width: '100%',
+      height: 240,
+      borderRadius: 12,
+      overflow: 'hidden',
+      backgroundColor:
+        '#f1f5f9',
+    },
+
+    photo: {
+      width: '100%',
+      height: '100%',
+    },
+
+    noPhoto: {
+      flex: 1,
+      alignItems:
+        'center',
+      justifyContent:
+        'center',
+    },
+
+    noPhotoText: {
+      color: '#64748b',
+      fontSize: 13,
+    },
+
+    /* =========================================================
+     * ORDER RESULT
+     * ========================================================= */
+
+    orderResultBox: {
+      flexDirection:
+        'row',
+      alignItems:
+        'center',
+      padding: 12,
+      borderRadius: 10,
+      backgroundColor:
+        '#f8fafc',
+      marginBottom: 12,
+    },
+
+    orderResultIcon: {
+      width: 38,
+      height: 38,
+      borderRadius: 19,
+      alignItems:
+        'center',
+      justifyContent:
+        'center',
+      marginRight: 10,
+    },
+
+    orderResultIconText: {
+      fontSize: 21,
+      fontWeight: '900',
+      color: '#0f172a',
+    },
+
+    orderResultContent: {
+      flex: 1,
+    },
+
+    orderResultLabel: {
+      fontSize: 8,
+      fontWeight: '900',
+      color: '#94a3b8',
+      letterSpacing: 0.8,
+    },
+
+    orderResultValue: {
+      marginTop: 3,
+      fontSize: 14,
+      fontWeight: '900',
+    },
+
+    orderText: {
+      color: '#15803d',
+    },
+
+    noOrderText: {
+      color: '#b91c1c',
+    },
+
+    absentText: {
+      color: '#854d0e',
+    },
+
+    /* =========================================================
+     * DETAIL ROW
+     * ========================================================= */
+
+    detailRow: {
+      flexDirection:
+        'row',
+      justifyContent:
+        'space-between',
+      gap: 16,
+      paddingVertical: 9,
+      borderBottomWidth: 1,
+      borderBottomColor:
+        '#f1f5f9',
+    },
+
+    detailLabel: {
+      fontSize: 13,
+      fontWeight: '600',
+      color: '#64748b',
+    },
+
+    detailValue: {
+      flex: 1,
+      fontSize: 13,
+      color: '#0f172a',
+      textAlign:
+        'right',
+    },
+
+    /* =========================================================
+     * REJECTION
+     * ========================================================= */
+
+    rejectionBox: {
+      marginTop: 14,
+      padding: 12,
+      borderRadius: 8,
+      backgroundColor:
+        '#fef2f2',
+    },
+
+    rejectionTitle: {
+      fontSize: 13,
+      fontWeight: '700',
+      color: '#991b1b',
+    },
+
+    rejectionText: {
+      marginTop: 5,
+      fontSize: 13,
+      lineHeight: 19,
+      color: '#7f1d1d',
+    },
+
+    /* =========================================================
+     * DONE
+     * ========================================================= */
+
+    doneButton: {
+      marginTop: 16,
+      paddingVertical: 12,
+      borderRadius: 9,
+      alignItems:
+        'center',
+      backgroundColor:
+        '#0f172a',
+    },
+
+    doneButtonText: {
+      fontSize: 14,
+      fontWeight: '700',
+      color: '#ffffff',
+    },
+  });
