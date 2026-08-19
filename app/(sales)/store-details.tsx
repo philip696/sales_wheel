@@ -2,24 +2,31 @@ import { FormInput } from '@/src/components/FormInput';
 import { PrimaryButton } from '@/src/components/PrimaryButton';
 import { ScreenContainer } from '@/src/components/ScreenContainer';
 import {
-    getLocalStore,
-    updateLocalStoreDetails,
-    type LocalStoreDetails,
-} from '@/src/services/localStoreService';
+  getStoreById,
+  updateStoreDetails,
+} from '@/src/services/storeService';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
+
 import {
-    ActivityIndicator,
-    Alert,
-    KeyboardAvoidingView,
-    Platform,
-    ScrollView,
-    StyleSheet,
-    Text,
-    View,
+  ActivityIndicator,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
 } from 'react-native';
 
-const EMPTY_DETAILS: LocalStoreDetails = {
+type StoreDetailsForm = {
+  phone_number: string;
+  owner_name: string;
+  usual_order: string;
+  notes: string;
+};
+
+const EMPTY_DETAILS: StoreDetailsForm = {
   phone_number: '',
   owner_name: '',
   usual_order: '',
@@ -36,29 +43,41 @@ export default function StoreDetailsScreen() {
   const storeId =
     params.storeId;
 
-  const [storeName, setStoreName] =
-    useState(
-      params.storeName ??
-        'Store'
-    );
+  const [
+    storeName,
+    setStoreName,
+  ] = useState(
+    params.storeName ??
+      'Store'
+  );
 
-  const [form, setForm] =
-    useState<LocalStoreDetails>(
-      EMPTY_DETAILS
-    );
+  const [
+    form,
+    setForm,
+  ] = useState<StoreDetailsForm>(
+    EMPTY_DETAILS
+  );
 
-  const [loading, setLoading] =
-    useState(true);
+  const [
+    loading,
+    setLoading,
+  ] = useState(true);
 
-  const [saving, setSaving] =
-    useState(false);
+  const [
+    saving,
+    setSaving,
+  ] = useState(false);
 
-  const [error, setError] =
-    useState<string | null>(null);
+  const [
+    error,
+    setError,
+  ] = useState<string | null>(
+    null
+  );
 
   /*
    * ============================================================
-   * LOAD STORE
+   * LOAD STORE FROM SUPABASE
    * ============================================================
    */
 
@@ -70,9 +89,11 @@ export default function StoreDetailsScreen() {
     async () => {
       if (!storeId) {
         setLoading(false);
+
         setError(
           'Store information could not be found.'
         );
+
         return;
       }
 
@@ -81,13 +102,13 @@ export default function StoreDetailsScreen() {
 
       try {
         const store =
-          await getLocalStore(
+          await getStoreById(
             storeId
           );
 
         if (!store) {
           throw new Error(
-            'Store could not be found on this device.'
+            'Store could not be found in the database.'
           );
         }
 
@@ -99,18 +120,22 @@ export default function StoreDetailsScreen() {
           phone_number:
             store.phone_number ??
             '',
+
           owner_name:
             store.owner_name ??
             '',
+
           usual_order:
             store.usual_order ??
             '',
+
           notes:
-            store.notes ?? '',
+            store.notes ??
+            '',
         });
       } catch (err) {
         console.error(
-          'LOAD LOCAL STORE ERROR:',
+          'LOAD STORE ERROR:',
           err
         );
 
@@ -126,7 +151,7 @@ export default function StoreDetailsScreen() {
 
   /*
    * ============================================================
-   * SAVE
+   * SAVE TO SUPABASE
    * ============================================================
    */
 
@@ -149,7 +174,7 @@ export default function StoreDetailsScreen() {
       setError(null);
 
       try {
-        await updateLocalStoreDetails(
+        await updateStoreDetails(
           storeId,
           {
             phone_number:
@@ -168,11 +193,10 @@ export default function StoreDetailsScreen() {
 
         Alert.alert(
           'Store Updated',
-          'Store information has been saved successfully.',
+          'Store information has been saved to the database.',
           [
             {
               text: 'OK',
-
               onPress: () => {
                 router.replace(
                   '/stores'
@@ -183,7 +207,7 @@ export default function StoreDetailsScreen() {
         );
       } catch (err) {
         console.error(
-          'SAVE LOCAL STORE ERROR:',
+          'SAVE STORE ERROR:',
           err
         );
 
@@ -277,13 +301,19 @@ export default function StoreDetailsScreen() {
           }
         >
           <View
-            style={styles.headerCard}
+            style={
+              styles.headerCard
+            }
           >
             <View
-              style={styles.headerIcon}
+              style={
+                styles.headerIcon
+              }
             >
               <Text
-                style={styles.headerEmoji}
+                style={
+                  styles.headerEmoji
+                }
               >
                 🏪
               </Text>
@@ -307,8 +337,9 @@ export default function StoreDetailsScreen() {
                   styles.headerText
                 }
               >
-                Add useful information about
-                this store for future visits.
+                Add useful information
+                about this store for
+                future visits.
               </Text>
             </View>
           </View>
@@ -404,8 +435,8 @@ export default function StoreDetailsScreen() {
               }
             >
               Record the products or
-              quantities this store usually
-              orders.
+              quantities this store
+              usually orders.
             </Text>
           </View>
 
@@ -471,7 +502,7 @@ export default function StoreDetailsScreen() {
                 styles.permissionIcon
               }
             >
-              ✏️
+              ☁️
             </Text>
 
             <View
@@ -484,7 +515,7 @@ export default function StoreDetailsScreen() {
                   styles.permissionTitle
                 }
               >
-                Store Information
+                Supabase Store Information
               </Text>
 
               <Text
@@ -492,10 +523,10 @@ export default function StoreDetailsScreen() {
                   styles.permissionText
                 }
               >
-                This information is saved locally
-                on this device. You can update
-                it whenever the store information
-                changes.
+                Phone number, owner name,
+                usual orders and notes
+                are saved directly to
+                the shared database.
               </Text>
             </View>
           </View>
@@ -531,21 +562,14 @@ export default function StoreDetailsScreen() {
           <Text
             style={styles.footer}
           >
-            Store location and attendance
-            settings cannot be changed from
-            this page.
+            Store information is stored
+            in the Supabase stores table.
           </Text>
         </ScrollView>
       </KeyboardAvoidingView>
     </ScreenContainer>
   );
 }
-
-/*
- * ============================================================
- * STYLES
- * ============================================================
- */
 
 const styles = StyleSheet.create({
   keyboardContainer: {

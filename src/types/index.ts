@@ -38,6 +38,10 @@ export interface Store {
   longitude: number;
   radius_meters: number;
   status: EntityStatus;
+  phone_number: string;
+  owner_name: string;
+  usual_order: string;
+  notes: string;
   created_at: string;
 }
 
@@ -192,4 +196,3 @@ export interface AdminAttendanceRecord
    * and sales.reference_photo_path exists (see the draft migration in
    * supabase/migrations/006_face_verification_draft.sql).
    */
-

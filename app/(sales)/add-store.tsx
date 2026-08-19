@@ -1,56 +1,78 @@
-import { FormInput } from '@/src/components/FormInput';
+iimport { FormInput } from '@/src/components/FormInput';
 import { PrimaryButton } from '@/src/components/PrimaryButton';
 import { ScreenContainer } from '@/src/components/ScreenContainer';
 import { useGpsVerification } from '@/src/features/gps/useGpsVerification';
 import { geocodeAddress } from '@/src/services/geocodingService';
-import { createLocalStore } from '@/src/services/localStoreService';
+import { createStore } from '@/src/services/storeService';
 import type { StoreInput } from '@/src/types';
 import {
-    isValidStoreCode,
-    isValidStoreName,
+  isValidStoreCode,
+  isValidStoreName,
 } from '@/src/utils/validation';
 import { router } from 'expo-router';
 import { useState } from 'react';
+
 import {
-    ActivityIndicator,
-    Alert,
-    KeyboardAvoidingView,
-    Platform,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    View,
+  ActivityIndicator,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
 } from 'react-native';
 
 const STORE_RADIUS_METERS = 50;
 
 export default function AddStoreScreen() {
-  const [form, setForm] = useState<StoreInput>({
-    store_code: '',
-    name: '',
-    address: '',
-    latitude: 0,
-    longitude: 0,
-    radius_meters: STORE_RADIUS_METERS,
-    status: 'active',
-  });
+  const [form, setForm] =
+    useState<StoreInput>({
+      store_code: '',
+      name: '',
+      address: '',
+      latitude: 0,
+      longitude: 0,
+      radius_meters:
+        STORE_RADIUS_METERS,
+      status: 'active',
+    });
 
-  const [saving, setSaving] = useState(false);
-  const [geocoding, setGeocoding] = useState(false);
-  const [checkingLocation, setCheckingLocation] =
-    useState(false);
+  const [
+    saving,
+    setSaving,
+  ] = useState(false);
 
-  const [formError, setFormError] =
-    useState<string | null>(null);
+  const [
+    geocoding,
+    setGeocoding,
+  ] = useState(false);
 
-  const [geocodeMatch, setGeocodeMatch] =
-    useState<string | null>(null);
+  const [
+    checkingLocation,
+    setCheckingLocation,
+  ] = useState(false);
+
+  const [
+    formError,
+    setFormError,
+  ] = useState<string | null>(
+    null
+  );
+
+  const [
+    geocodeMatch,
+    setGeocodeMatch,
+  ] = useState<string | null>(
+    null
+  );
 
   const {
     requestPermission,
     getCurrentPosition,
-  } = useGpsVerification();
+  } =
+    useGpsVerification();
 
   const busy =
     saving ||
@@ -73,64 +95,72 @@ export default function AddStoreScreen() {
 
   /*
    * ============================================================
-   * FIND STORE LOCATION
+   * FIND LOCATION
    * ============================================================
    */
 
-  const handleFindLocation = async () => {
-    const address = form.address?.trim();
+  const handleFindLocation =
+    async () => {
+      const address =
+        form.address?.trim();
 
-    if (!address) {
-      setFormError(
-        'Enter the store address first.'
-      );
-
-      return;
-    }
-
-    setGeocoding(true);
-    setFormError(null);
-    setGeocodeMatch(null);
-
-    try {
-      const result =
-        await geocodeAddress(address);
-
-      if (!result) {
+      if (!address) {
         setFormError(
-          'Could not find this address. Please enter a more specific address.'
+          'Enter the store address first.'
         );
 
         return;
       }
 
-      setForm((current) => ({
-        ...current,
-        latitude: result.latitude,
-        longitude: result.longitude,
-        radius_meters:
-          STORE_RADIUS_METERS,
-        status: 'active',
-      }));
+      setGeocoding(true);
+      setFormError(null);
+      setGeocodeMatch(null);
 
-      setGeocodeMatch(
-        result.displayName
-      );
-    } catch (error) {
-      console.error(
-        'GEOCODING ERROR:',
-        error
-      );
+      try {
+        const result =
+          await geocodeAddress(
+            address
+          );
 
-      setFormError(
-        error instanceof Error
-          ? error.message
-          : 'Could not find this location.'
-      );
-    } finally {
-      setGeocoding(false);
-    }
-  };
+        if (!result) {
+          setFormError(
+            'Could not find this address. Please enter a more specific address.'
+          );
+
+          return;
+        }
+
+        setForm(
+          (current) => ({
+            ...current,
+            latitude:
+              result.latitude,
+            longitude:
+              result.longitude,
+            radius_meters:
+              STORE_RADIUS_METERS,
+            status: 'active',
+          })
+        );
+
+        setGeocodeMatch(
+          result.displayName
+        );
+      } catch (error) {
+        console.error(
+          'GEOCODING ERROR:',
+          error
+        );
+
+        setFormError(
+          error instanceof Error
+            ? error.message
+            : 'Could not find this location.'
+        );
+      } finally {
+        setGeocoding(false);
+      }
+    };
 
   /*
    * ============================================================
@@ -158,7 +188,8 @@ export default function AddStoreScreen() {
 
       if (
         !form.address ||
-        form.address.trim().length === 0
+        form.address.trim()
+          .length === 0
       ) {
         return 'Store address is required.';
       }
@@ -181,7 +212,68 @@ export default function AddStoreScreen() {
 
   /*
    * ============================================================
-   * VERIFY USER LOCATION
+   * DISTANCE
+   * ============================================================
+   */
+
+  const calculateDistanceMeters =
+    (
+      latitude1: number,
+      longitude1: number,
+      latitude2: number,
+      longitude2: number
+    ) => {
+      const earthRadius =
+        6371000;
+
+      const lat1 =
+        (latitude1 *
+          Math.PI) /
+        180;
+
+      const lat2 =
+        (latitude2 *
+          Math.PI) /
+        180;
+
+      const deltaLat =
+        ((latitude2 -
+          latitude1) *
+          Math.PI) /
+        180;
+
+      const deltaLon =
+        ((longitude2 -
+          longitude1) *
+          Math.PI) /
+        180;
+
+      const a =
+        Math.sin(
+          deltaLat / 2
+        ) ** 2 +
+        Math.cos(lat1) *
+          Math.cos(lat2) *
+          Math.sin(
+            deltaLon / 2
+          ) **
+            2;
+
+      const c =
+        2 *
+        Math.atan2(
+          Math.sqrt(a),
+          Math.sqrt(1 - a)
+        );
+
+      return (
+        earthRadius * c
+      );
+    };
+
+  /*
+   * ============================================================
+   * VERIFY LOCATION
    * ============================================================
    */
 
@@ -193,7 +285,7 @@ export default function AddStoreScreen() {
       if (!permitted) {
         Alert.alert(
           'Location Required',
-          'Location permission is required to add a store. You must be physically at the store location.'
+          'Location permission is required to add a store.'
         );
 
         return false;
@@ -220,18 +312,23 @@ export default function AddStoreScreen() {
         );
 
       console.log(
-        'STORE CREATION LOCATION CHECK:',
+        'STORE CREATION GPS CHECK:',
         {
           userLatitude:
             reading.latitude,
+
           userLongitude:
             reading.longitude,
+
           storeLatitude:
             form.latitude,
+
           storeLongitude:
             form.longitude,
+
           distanceMeters:
             distance,
+
           accuracy:
             reading.accuracy,
         }
@@ -252,13 +349,14 @@ export default function AddStoreScreen() {
       }
 
       if (
-        reading.accuracy != null &&
+        reading.accuracy !=
+          null &&
         reading.accuracy >
           STORE_RADIUS_METERS
       ) {
         Alert.alert(
           'GPS Accuracy Too Low',
-          `Your current GPS accuracy is approximately ${reading.accuracy.toFixed(
+          `Your GPS accuracy is approximately ${reading.accuracy.toFixed(
             0
           )}m.\n\nPlease move somewhere with a better GPS signal and try again.`
         );
@@ -271,7 +369,7 @@ export default function AddStoreScreen() {
 
   /*
    * ============================================================
-   * CREATE STORE
+   * CREATE STORE IN SUPABASE
    * ============================================================
    */
 
@@ -296,10 +394,6 @@ export default function AddStoreScreen() {
       setCheckingLocation(true);
 
       try {
-        /*
-         * GPS verification
-         */
-
         const atStore =
           await verifyUserIsAtStore();
 
@@ -307,18 +401,16 @@ export default function AddStoreScreen() {
           return;
         }
 
-        /*
-         * IMPORTANT:
-         *
-         * This uses LOCAL STORAGE.
-         *
-         * It does NOT use Supabase.
-         */
-
         setSaving(true);
 
+        /*
+         * ======================================================
+         * SUPABASE INSERT
+         * ======================================================
+         */
+
         const createdStore =
-          await createLocalStore({
+          await createStore({
             store_code:
               form.store_code.trim(),
 
@@ -326,7 +418,8 @@ export default function AddStoreScreen() {
               form.name.trim(),
 
             address:
-              form.address?.trim() ?? '',
+              form.address?.trim() ??
+              '',
 
             latitude:
               form.latitude,
@@ -337,34 +430,18 @@ export default function AddStoreScreen() {
             radius_meters:
               STORE_RADIUS_METERS,
 
-            status: 'active',
+            status:
+              'active',
           });
 
         console.log(
-          'LOCAL STORE CREATED:',
+          'SUPABASE STORE CREATED:',
           createdStore
         );
 
-        /*
-         * ======================================================
-         * GO TO STORE DETAILS
-         * ======================================================
-         *
-         * Actual file:
-         *
-         * app/(sales)/store-details.tsx
-         *
-         * Correct route:
-         *
-         * /store-details
-         *
-         * NOT:
-         * /(sales)/store-details
-         */
-
         Alert.alert(
           'Store Added',
-          `${createdStore.name} has been added successfully.\n\nNow add the store's phone number, owner name, usual orders and notes.`,
+          `${createdStore.name} has been added successfully.`,
           [
             {
               text: 'Continue',
@@ -388,7 +465,7 @@ export default function AddStoreScreen() {
         );
       } catch (error) {
         console.error(
-          'ADD LOCAL STORE ERROR:',
+          'ADD STORE SUPABASE ERROR:',
           error
         );
 
@@ -405,19 +482,15 @@ export default function AddStoreScreen() {
       }
     };
 
-  /*
-   * ============================================================
-   * UI
-   * ============================================================
-   */
-
   return (
     <ScreenContainer
       title="Add Store"
       subtitle="Add a new store at your current location"
     >
       <KeyboardAvoidingView
-        style={styles.keyboardContainer}
+        style={
+          styles.keyboardContainer
+        }
         behavior={
           Platform.OS === 'ios'
             ? 'padding'
@@ -458,11 +531,11 @@ export default function AddStoreScreen() {
               <Text
                 style={styles.infoText}
               >
-                You must physically be at
-                the store to add it. Your
-                current GPS location will be
-                checked before the store is
-                created.
+                You must physically be
+                at the store to add it.
+                Your GPS location will
+                be checked before the
+                store is created.
               </Text>
             </View>
           </View>
@@ -511,7 +584,8 @@ export default function AddStoreScreen() {
             <FormInput
               placeholder="Store Address"
               value={
-                form.address ?? ''
+                form.address ??
+                ''
               }
               editable={!busy}
               multiline
@@ -533,9 +607,7 @@ export default function AddStoreScreen() {
             />
 
             <Pressable
-              style={({
-                pressed,
-              }) => [
+              style={({ pressed }) => [
                 styles.findLocationButton,
                 geocoding &&
                   styles.disabledButton,
@@ -651,9 +723,9 @@ export default function AddStoreScreen() {
                   styles.radiusText
                 }
               >
-                Store attendance radius is
-                automatically set to 50
-                meters.
+                Store attendance radius
+                is automatically set to
+                50 meters.
               </Text>
             </View>
 
@@ -727,7 +799,7 @@ export default function AddStoreScreen() {
                   styles.securityTitle
                 }
               >
-                Location Verification
+                Supabase Database
               </Text>
 
               <Text
@@ -735,49 +807,11 @@ export default function AddStoreScreen() {
                   styles.securityText
                 }
               >
-                Your phone's GPS location
-                will be checked against the
-                store location before the
-                store is created.
-              </Text>
-            </View>
-          </View>
-
-          <View
-            style={
-              styles.nextStepCard
-            }
-          >
-            <Text
-              style={
-                styles.nextStepIcon
-              }
-            >
-              📝
-            </Text>
-
-            <View
-              style={
-                styles.nextStepContent
-              }
-            >
-              <Text
-                style={
-                  styles.nextStepTitle
-                }
-              >
-                Store Information
-              </Text>
-
-              <Text
-                style={
-                  styles.nextStepText
-                }
-              >
-                After the store is created,
-                you can add the owner's name,
-                phone number, usual orders
-                and notes.
+                This store will be saved
+                directly to the shared
+                Supabase database so it
+                is available to authorized
+                users.
               </Text>
             </View>
           </View>
@@ -818,85 +852,14 @@ export default function AddStoreScreen() {
           <Text
             style={styles.footer}
           >
-            Store is saved locally on this
-            device with a fixed 50m
-            attendance radius.
+            Store data is saved directly
+            to the Supabase database.
           </Text>
         </ScrollView>
       </KeyboardAvoidingView>
     </ScreenContainer>
   );
 }
-
-/*
- * ============================================================
- * DISTANCE
- * ============================================================
- */
-
-function calculateDistanceMeters(
-  latitude1: number,
-  longitude1: number,
-  latitude2: number,
-  longitude2: number
-): number {
-  const earthRadiusMeters =
-    6371000;
-
-  const lat1 =
-    toRadians(latitude1);
-
-  const lat2 =
-    toRadians(latitude2);
-
-  const deltaLatitude =
-    toRadians(
-      latitude2 - latitude1
-    );
-
-  const deltaLongitude =
-    toRadians(
-      longitude2 - longitude1
-    );
-
-  const a =
-    Math.sin(
-      deltaLatitude / 2
-    ) **
-      2 +
-    Math.cos(lat1) *
-      Math.cos(lat2) *
-      Math.sin(
-        deltaLongitude / 2
-      ) **
-        2;
-
-  const c =
-    2 *
-    Math.atan2(
-      Math.sqrt(a),
-      Math.sqrt(1 - a)
-    );
-
-  return (
-    earthRadiusMeters * c
-  );
-}
-
-function toRadians(
-  degrees: number
-): number {
-  return (
-    (degrees * Math.PI) /
-    180
-  );
-}
-
-/*
- * ============================================================
- * STYLES
- * ============================================================
- */
 
 const styles = StyleSheet.create({
   keyboardContainer: {
@@ -964,14 +927,6 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 15,
     marginBottom: 16,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 1,
-    },
-    shadowOpacity: 0.06,
-    shadowRadius: 2,
   },
 
   findLocationButton: {
@@ -1139,7 +1094,7 @@ const styles = StyleSheet.create({
     borderColor: '#e2e8f0',
     borderRadius: 14,
     padding: 13,
-    marginBottom: 12,
+    marginBottom: 18,
   },
 
   securityIcon: {
@@ -1159,39 +1114,6 @@ const styles = StyleSheet.create({
   },
 
   securityText: {
-    fontSize: 10,
-    lineHeight: 15,
-    color: '#64748b',
-  },
-
-  nextStepCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#f8fafc',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 14,
-    padding: 13,
-    marginBottom: 18,
-  },
-
-  nextStepIcon: {
-    fontSize: 23,
-    marginRight: 11,
-  },
-
-  nextStepContent: {
-    flex: 1,
-  },
-
-  nextStepTitle: {
-    fontSize: 12,
-    fontWeight: '900',
-    color: '#334155',
-    marginBottom: 3,
-  },
-
-  nextStepText: {
     fontSize: 10,
     lineHeight: 15,
     color: '#64748b',

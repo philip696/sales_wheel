@@ -10,40 +10,50 @@ import { sanitizeSearchQuery } from '@/src/utils/validation';
 
 const DEFAULT_PAGE_SIZE = 20;
 
-// Postgres error codes we handle specially when writing to `stores`.
 const PG_UNIQUE_VIOLATION = '23505';
 const PG_FOREIGN_KEY_VIOLATION = '23503';
 
-/**
- * Thrown by `deleteStore` when the store can't be removed because
- * attendance/spin rows still reference it. Callers can catch this
- * specifically to offer `forceDeleteStore` as a next step.
- */
 export class StoreHasHistoryError extends Error {
+  storeId: string;
+
   constructor(storeId: string) {
     super(
       'This store has attendance or spin history and cannot be deleted directly.'
     );
+
     this.name = 'StoreHasHistoryError';
     this.storeId = storeId;
   }
-  storeId: string;
 }
+
+/*
+ * ============================================================
+ * SALES — SEARCH ACTIVE STORES
+ * ============================================================
+ */
 
 export async function searchStores(
   params: StoreSearchParams = {}
 ): Promise<PaginatedResult<Store>> {
   const page = params.page ?? 1;
   const pageSize = params.pageSize ?? DEFAULT_PAGE_SIZE;
+
   const from = (page - 1) * pageSize;
   const to = from + pageSize - 1;
-  const query = sanitizeSearchQuery(params.query ?? '');
+
+  const query = sanitizeSearchQuery(
+    params.query ?? ''
+  );
 
   let builder = supabase
     .from('stores')
-    .select('*', { count: 'exact' })
+    .select('*', {
+      count: 'exact',
+    })
     .eq('status', 'active')
-    .order('name', { ascending: true })
+    .order('name', {
+      ascending: true,
+    })
     .range(from, to);
 
   if (query.length > 0) {
@@ -52,80 +62,145 @@ export async function searchStores(
     );
   }
 
-  const { data, error, count } = await builder;
+  const {
+    data,
+    error,
+    count,
+  } = await builder;
 
   if (error) {
+    console.error(
+      'SEARCH STORES ERROR:',
+      error
+    );
+
     throw new Error(error.message);
   }
+
+  const stores = (data ?? []) as Store[];
 
   const total = count ?? 0;
 
   return {
-    data: data ?? [],
+    data: stores,
     total,
     page,
     pageSize,
-    hasMore: from + (data?.length ?? 0) < total,
+    hasMore:
+      from + stores.length < total,
   };
 }
 
-export async function getStoreById(storeId: string): Promise<Store | null> {
-  const { data, error } = await supabase
+/*
+ * ============================================================
+ * GET STORE
+ * ============================================================
+ */
+
+export async function getStoreById(
+  storeId: string
+): Promise<Store | null> {
+  if (!storeId) {
+    return null;
+  }
+
+  const {
+    data,
+    error,
+  } = await supabase
     .from('stores')
     .select('*')
     .eq('id', storeId)
-    .eq('status', 'active')
     .maybeSingle();
 
   if (error) {
+    console.error(
+      'GET STORE BY ID ERROR:',
+      error
+    );
+
     throw new Error(error.message);
   }
 
-  return data;
+  if (!data) {
+    return null;
+  }
+
+  return data as Store;
 }
 
-export async function getStoreByCode(storeCode: string): Promise<Store | null> {
-  const { data, error } = await supabase
+/*
+ * ============================================================
+ * GET STORE BY CODE
+ * ============================================================
+ */
+
+export async function getStoreByCode(
+  storeCode: string
+): Promise<Store | null> {
+  const code = storeCode.trim();
+
+  if (!code) {
+    return null;
+  }
+
+  const {
+    data,
+    error,
+  } = await supabase
     .from('stores')
     .select('*')
-    .eq('store_code', storeCode)
-    .eq('status', 'active')
+    .eq('store_code', code)
     .maybeSingle();
 
   if (error) {
     throw new Error(error.message);
   }
 
-  return data;
+  return data as Store | null;
 }
 
-// ---------------------------------------------------------------------------
-// Admin CRUD
-//
-// These bypass the `status = 'active'` filter that the sales-facing functions
-// above apply, and rely on the `admin_manage_stores` RLS policy (FOR ALL,
-// USING/WITH CHECK public.is_admin()) to authorize writes. They are only
-// meaningful when called by a signed-in user whose `public.sales.role` is
-// 'admin' — for any other user, Postgres will simply reject the write.
-// ---------------------------------------------------------------------------
+/*
+ * ============================================================
+ * ADMIN — LIST ALL STORES
+ * ============================================================
+ */
 
 export async function listAllStores(
   params: AdminStoreSearchParams = {}
 ): Promise<PaginatedResult<Store>> {
   const page = params.page ?? 1;
-  const pageSize = params.pageSize ?? DEFAULT_PAGE_SIZE;
-  const from = (page - 1) * pageSize;
-  const to = from + pageSize - 1;
-  const query = sanitizeSearchQuery(params.query ?? '');
+  const pageSize =
+    params.pageSize ?? DEFAULT_PAGE_SIZE;
+
+  const from =
+    (page - 1) * pageSize;
+
+  const to =
+    from + pageSize - 1;
+
+  const query = sanitizeSearchQuery(
+    params.query ?? ''
+  );
 
   let builder = supabase
     .from('stores')
-    .select('*', { count: 'exact' })
-    .order('created_at', { ascending: false })
+    .select('*', {
+      count: 'exact',
+    })
+    .order('created_at', {
+      ascending: false,
+    })
     .range(from, to);
 
-  if (params.status && params.status !== 'all') {
-    builder = builder.eq('status', params.status);
+  if (
+    params.status &&
+    params.status !== 'all'
+  ) {
+    builder = builder.eq(
+      'status',
+      params.status
+    );
   }
 
   if (query.length > 0) {
@@ -134,146 +209,312 @@ export async function listAllStores(
     );
   }
 
-  const { data, error, count } = await builder;
+  const {
+    data,
+    error,
+    count,
+  } = await builder;
 
   if (error) {
     throw new Error(error.message);
   }
+
+  const stores = (data ?? []) as Store[];
 
   const total = count ?? 0;
 
   return {
-    data: data ?? [],
+    data: stores,
     total,
     page,
     pageSize,
-    hasMore: from + (data?.length ?? 0) < total,
+    hasMore:
+      from + stores.length < total,
   };
 }
 
-function normalizeStoreInput(input: StoreInput) {
+/*
+ * ============================================================
+ * NORMALIZE INPUT
+ * ============================================================
+ */
+
+function normalizeStoreInput(
+  input: StoreInput
+) {
   return {
-    store_code: input.store_code.trim(),
-    name: input.name.trim(),
-    address: input.address?.trim() ? input.address.trim() : null,
-    latitude: input.latitude,
-    longitude: input.longitude,
-    radius_meters: Math.round(input.radius_meters),
-    status: input.status,
+    store_code:
+      input.store_code.trim(),
+
+    name:
+      input.name.trim(),
+
+    address:
+      input.address?.trim()
+        ? input.address.trim()
+        : null,
+
+    latitude:
+      Number(input.latitude),
+
+    longitude:
+      Number(input.longitude),
+
+    radius_meters:
+      Math.round(
+        Number(input.radius_meters)
+      ),
+
+    status:
+      input.status ?? 'active',
   };
 }
 
-export async function createStore(input: StoreInput): Promise<Store> {
-  const { data, error } = await supabase
+/*
+ * ============================================================
+ * CREATE STORE
+ * ============================================================
+ */
+
+export async function createStore(
+  input: StoreInput
+): Promise<Store> {
+  const payload =
+    normalizeStoreInput(input);
+
+  console.log(
+    'CREATING STORE IN SUPABASE:',
+    payload
+  );
+
+  const {
+    data,
+    error,
+  } = await supabase
     .from('stores')
-    .insert(normalizeStoreInput(input))
+    .insert(payload)
     .select('*')
     .single();
 
   if (error) {
-    if (error.code === PG_UNIQUE_VIOLATION) {
-      throw new Error(`Store code "${input.store_code}" is already in use.`);
+    console.error(
+      'CREATE STORE ERROR:',
+      error
+    );
+
+    if (
+      error.code ===
+      PG_UNIQUE_VIOLATION
+    ) {
+      throw new Error(
+        `Store code "${input.store_code}" is already in use.`
+      );
     }
-    throw new Error(error.message);
+
+    throw new Error(
+      error.message
+    );
   }
 
-  return data;
+  return data as Store;
 }
+
+/*
+ * ============================================================
+ * UPDATE STORE
+ * ============================================================
+ */
 
 export async function updateStore(
   storeId: string,
   input: StoreInput
 ): Promise<Store> {
-  const { data, error } = await supabase
+  const payload =
+    normalizeStoreInput(input);
+
+  const {
+    data,
+    error,
+  } = await supabase
     .from('stores')
-    .update(normalizeStoreInput(input))
+    .update(payload)
     .eq('id', storeId)
     .select('*')
     .single();
 
   if (error) {
-    if (error.code === PG_UNIQUE_VIOLATION) {
-      throw new Error(`Store code "${input.store_code}" is already in use.`);
+    if (
+      error.code ===
+      PG_UNIQUE_VIOLATION
+    ) {
+      throw new Error(
+        `Store code "${input.store_code}" is already in use.`
+      );
     }
-    throw new Error(error.message);
+
+    throw new Error(
+      error.message
+    );
   }
 
-  return data;
+  return data as Store;
 }
+
+/*
+ * ============================================================
+ * UPDATE STORE DETAILS
+ *
+ * This uses the columns you already created:
+ *
+ * phone_number
+ * owner_name
+ * usual_order
+ * notes
+ * ============================================================
+ */
+
+export async function updateStoreDetails(
+  storeId: string,
+  details: {
+    phone_number: string;
+    owner_name: string;
+    usual_order: string;
+    notes: string;
+  }
+): Promise<Store> {
+  const {
+    data,
+    error,
+  } = await supabase
+    .from('stores')
+    .update({
+      phone_number:
+        details.phone_number.trim(),
+
+      owner_name:
+        details.owner_name.trim(),
+
+      usual_order:
+        details.usual_order.trim(),
+
+      notes:
+        details.notes.trim(),
+    })
+    .eq('id', storeId)
+    .select('*')
+    .single();
+
+  if (error) {
+    console.error(
+      'UPDATE STORE DETAILS ERROR:',
+      error
+    );
+
+    throw new Error(
+      error.message
+    );
+  }
+
+  return data as Store;
+}
+
+/*
+ * ============================================================
+ * SET STATUS
+ * ============================================================
+ */
 
 export async function setStoreStatus(
   storeId: string,
   status: Store['status']
 ): Promise<Store> {
-  const { data, error } = await supabase
+  const {
+    data,
+    error,
+  } = await supabase
     .from('stores')
-    .update({ status })
+    .update({
+      status,
+    })
     .eq('id', storeId)
     .select('*')
     .single();
 
   if (error) {
-    throw new Error(error.message);
+    throw new Error(
+      error.message
+    );
   }
 
-  return data;
+  return data as Store;
 }
 
-/**
- * Permanently deletes a store. `attendance` and `spins` reference stores with
- * ON DELETE RESTRICT, so this will fail with a friendly error for any store
- * that already has history — callers should offer deactivation
- * (`setStoreStatus(id, 'inactive')`) as the alternative in that case.
+/*
+ * ============================================================
+ * DELETE STORE
+ * ============================================================
  */
-/**
- * Permanently deletes a store. `attendance` and `spins` reference stores with
- * ON DELETE RESTRICT, so this will fail with a friendly error for any store
- * that already has history — callers should offer `forceDeleteStore` (which
- * also wipes that history) or `setStoreStatus(id, 'inactive')` instead.
- */
-export async function deleteStore(storeId: string): Promise<void> {
-  const { error } = await supabase.from('stores').delete().eq('id', storeId);
+
+export async function deleteStore(
+  storeId: string
+): Promise<void> {
+  const {
+    error,
+  } = await supabase
+    .from('stores')
+    .delete()
+    .eq('id', storeId);
 
   if (error) {
-    if (error.code === PG_FOREIGN_KEY_VIOLATION) {
-      throw new StoreHasHistoryError(storeId);
+    if (
+      error.code ===
+      PG_FOREIGN_KEY_VIOLATION
+    ) {
+      throw new StoreHasHistoryError(
+        storeId
+      );
     }
-    throw new Error(error.message);
+
+    throw new Error(
+      error.message
+    );
   }
 }
 
-/**
- * Permanently deletes a store, and everything that references it.
- *
- * `attendance` and `spins` reference stores with ON DELETE RESTRICT, so a
- * plain delete (see `deleteStore` above) fails for any store with history.
- * This variant clears that history first, in FK-safe order, then deletes
- * the store itself:
- *
- *   spins (references both store and attendance) -> attendance -> store
- *
- * `audit_log.store_id` is ON DELETE SET NULL, so those rows are preserved
- * automatically with the store reference cleared — no action needed there.
- *
- * This is destructive and irreversible. Callers should get an explicit,
- * unambiguous confirmation from the admin before calling this — a generic
- * "Delete?" alert is not enough, since it also erases attendance/spin
- * history for every sales rep who ever visited this store.
+/*
+ * ============================================================
+ * FORCE DELETE
+ * ============================================================
  */
-export async function forceDeleteStore(storeId: string): Promise<void> {
-  const { error: spinsError } = await supabase
+
+export async function forceDeleteStore(
+  storeId: string
+): Promise<void> {
+  const {
+    error: spinsError,
+  } = await supabase
     .from('spins')
     .delete()
-    .eq('store_id', storeId);
+    .eq(
+      'store_id',
+      storeId
+    );
 
   if (spinsError) {
-    throw new Error(`Could not clear spin history: ${spinsError.message}`);
+    throw new Error(
+      `Could not clear spin history: ${spinsError.message}`
+    );
   }
 
-  const { error: attendanceError } = await supabase
+  const {
+    error: attendanceError,
+  } = await supabase
     .from('attendance')
     .delete()
-    .eq('store_id', storeId);
+    .eq(
+      'store_id',
+      storeId
+    );
 
   if (attendanceError) {
     throw new Error(
@@ -281,12 +522,16 @@ export async function forceDeleteStore(storeId: string): Promise<void> {
     );
   }
 
-  const { error: storeError } = await supabase
+  const {
+    error: storeError,
+  } = await supabase
     .from('stores')
     .delete()
     .eq('id', storeId);
 
   if (storeError) {
-    throw new Error(storeError.message);
+    throw new Error(
+      storeError.message
+    );
   }
 }

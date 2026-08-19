@@ -1,12 +1,16 @@
+import { ScreenContainer } from '@/src/components/ScreenContainer';
+import { useAttendanceFlow } from '@/src/features/attendance/AttendanceFlowContext';
 import {
-  searchLocalStores,
-  type LocalStore,
-} from '@/src/services/localStoreService';
+  searchStores,
+} from '@/src/services/storeService';
+import type { Store } from '@/src/types';
+import { useFocusEffect } from '@react-navigation/native';
 import { router } from 'expo-router';
 import {
   useCallback,
   useState,
 } from 'react';
+
 import {
   ActivityIndicator,
   FlatList,
@@ -17,30 +21,37 @@ import {
   View,
 } from 'react-native';
 
-import { ScreenContainer } from '@/src/components/ScreenContainer';
-import { useAttendanceFlow } from '@/src/features/attendance/AttendanceFlowContext';
-import { useFocusEffect } from '@react-navigation/native';
-
 export default function StoresScreen() {
   const {
     setSelectedStore,
-  } = useAttendanceFlow();
+  } =
+    useAttendanceFlow();
 
-  const [query, setQuery] =
-    useState('');
+  const [
+    query,
+    setQuery,
+  ] = useState('');
 
-  const [stores, setStores] =
-    useState<LocalStore[]>([]);
+  const [
+    stores,
+    setStores,
+  ] = useState<Store[]>([]);
 
-  const [loading, setLoading] =
-    useState(false);
+  const [
+    loading,
+    setLoading,
+  ] = useState(false);
 
-  const [error, setError] =
-    useState<string | null>(null);
+  const [
+    error,
+    setError,
+  ] = useState<string | null>(
+    null
+  );
 
   /*
    * ============================================================
-   * LOAD LOCAL STORES
+   * LOAD STORES FROM SUPABASE
    * ============================================================
    */
 
@@ -54,14 +65,19 @@ export default function StoresScreen() {
 
         try {
           const result =
-            await searchLocalStores(
-              searchQuery
-            );
+            await searchStores({
+              query:
+                searchQuery,
+              page: 1,
+              pageSize: 100,
+            });
 
-          setStores(result);
+          setStores(
+            result.data
+          );
         } catch (err) {
           console.error(
-            'LOCAL STORE LOAD ERROR:',
+            'SUPABASE STORE LOAD ERROR:',
             err
           );
 
@@ -79,7 +95,7 @@ export default function StoresScreen() {
 
   /*
    * ============================================================
-   * REFRESH WHEN SCREEN GETS FOCUS
+   * REFRESH WHEN SCREEN OPENS
    * ============================================================
    */
 
@@ -99,7 +115,7 @@ export default function StoresScreen() {
    */
 
   const handleSelectStore =
-    (store: LocalStore) => {
+    (store: Store) => {
       setSelectedStore(
         store
       );
@@ -111,12 +127,12 @@ export default function StoresScreen() {
 
   /*
    * ============================================================
-   * OPEN DETAILS
+   * STORE DETAILS
    * ============================================================
    */
 
   const handleOpenDetails =
-    (store: LocalStore) => {
+    (store: Store) => {
       router.push({
         pathname:
           '/store-details',
@@ -158,122 +174,120 @@ export default function StoresScreen() {
     ({
       item,
     }: {
-      item: LocalStore;
-    }) => {
-      return (
-        <View
-          style={
-            styles.storeItem
+      item: Store;
+    }) => (
+      <View
+        style={
+          styles.storeItem
+        }
+      >
+        <Pressable
+          style={({ pressed }) => [
+            styles.storeMain,
+            pressed &&
+              styles.storeItemPressed,
+          ]}
+          onPress={() =>
+            handleSelectStore(
+              item
+            )
           }
         >
-          <Pressable
-            style={({ pressed }) => [
-              styles.storeMain,
-              pressed &&
-                styles.storeItemPressed,
-            ]}
-            onPress={() =>
-              handleSelectStore(
-                item
-              )
-            }
-          >
-            <View
-              style={
-                styles.storeIcon
-              }
-            >
-              <Text
-                style={
-                  styles.storeEmoji
-                }
-              >
-                🏪
-              </Text>
-            </View>
-
-            <View
-              style={
-                styles.storeInfo
-              }
-            >
-              <Text
-                style={
-                  styles.storeName
-                }
-                numberOfLines={1}
-              >
-                {item.name}
-              </Text>
-
-              {item.store_code ? (
-                <Text
-                  style={
-                    styles.storeCode
-                  }
-                >
-                  {item.store_code}
-                </Text>
-              ) : null}
-
-              {item.address ? (
-                <Text
-                  style={
-                    styles.storeAddress
-                  }
-                  numberOfLines={2}
-                >
-                  {item.address}
-                </Text>
-              ) : null}
-
-              <View
-                style={
-                  styles.verificationBadge
-                }
-              >
-                <Text
-                  style={
-                    styles.verificationIcon
-                  }
-                >
-                  📍
-                </Text>
-
-                <Text
-                  style={
-                    styles.verificationText
-                  }
-                >
-                  GPS verification required
-                </Text>
-              </View>
-            </View>
-          </Pressable>
-
-          <Pressable
-            style={({ pressed }) => [
-              styles.detailsButton,
-              pressed &&
-                styles.detailsButtonPressed,
-            ]}
-            onPress={() =>
-              handleOpenDetails(
-                item
-              )
+          <View
+            style={
+              styles.storeIcon
             }
           >
             <Text
               style={
-                styles.detailsButtonText
+                styles.storeEmoji
               }
             >
-              INFO
+              🏪
             </Text>
-          </Pressable>
-        </View>
-      );
-    };
+          </View>
+
+          <View
+            style={
+              styles.storeInfo
+            }
+          >
+            <Text
+              style={
+                styles.storeName
+              }
+              numberOfLines={1}
+            >
+              {item.name}
+            </Text>
+
+            {item.store_code ? (
+              <Text
+                style={
+                  styles.storeCode
+                }
+              >
+                {item.store_code}
+              </Text>
+            ) : null}
+
+            {item.address ? (
+              <Text
+                style={
+                  styles.storeAddress
+                }
+                numberOfLines={2}
+              >
+                {item.address}
+              </Text>
+            ) : null}
+
+            <View
+              style={
+                styles.verificationBadge
+              }
+            >
+              <Text
+                style={
+                  styles.verificationIcon
+                }
+              >
+                📍
+              </Text>
+
+              <Text
+                style={
+                  styles.verificationText
+                }
+              >
+                GPS verification required
+              </Text>
+            </View>
+          </View>
+        </Pressable>
+
+        <Pressable
+          style={({ pressed }) => [
+            styles.detailsButton,
+            pressed &&
+              styles.detailsButtonPressed,
+          ]}
+          onPress={() =>
+            handleOpenDetails(
+              item
+            )
+          }
+        >
+          <Text
+            style={
+              styles.detailsButtonText
+            }
+          >
+            INFO
+          </Text>
+        </Pressable>
+      </View>
+    );
 
   /*
    * ============================================================
@@ -325,7 +339,7 @@ export default function StoresScreen() {
           >
             {query
               ? 'Try searching with a different store name or code.'
-              : 'Add your first store to begin.'}
+              : 'No active stores are available.'}
           </Text>
 
           {query ? (
@@ -357,179 +371,177 @@ export default function StoresScreen() {
    */
 
   const renderHeader =
-    () => {
-      return (
-        <>
+    () => (
+      <>
+        <View
+          style={
+            styles.searchContainer
+          }
+        >
+          <Text
+            style={
+              styles.searchIcon
+            }
+          >
+            🔍
+          </Text>
+
+          <TextInput
+            style={
+              styles.search
+            }
+            placeholder="Search store name or code..."
+            placeholderTextColor="#94a3b8"
+            value={query}
+            onChangeText={
+              setQuery
+            }
+            onSubmitEditing={
+              handleSearch
+            }
+            returnKeyType="search"
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+
+          {query.length > 0 ? (
+            <Pressable
+              onPress={
+                handleClearSearch
+              }
+              hitSlop={8}
+            >
+              <Text
+                style={
+                  styles.clear
+                }
+              >
+                ✕
+              </Text>
+            </Pressable>
+          ) : null}
+        </View>
+
+        <View
+          style={
+            styles.listHeader
+          }
+        >
           <View
             style={
-              styles.searchContainer
+              styles.headerText
             }
           >
             <Text
               style={
-                styles.searchIcon
+                styles.sectionTitle
               }
             >
-              🔍
+              AVAILABLE STORES
             </Text>
 
-            <TextInput
+            <Text
               style={
-                styles.search
-              }
-              placeholder="Search store name or code..."
-              placeholderTextColor="#94a3b8"
-              value={query}
-              onChangeText={
-                setQuery
-              }
-              onSubmitEditing={
-                handleSearch
-              }
-              returnKeyType="search"
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-
-            {query.length > 0 ? (
-              <Pressable
-                onPress={
-                  handleClearSearch
-                }
-                hitSlop={8}
-              >
-                <Text
-                  style={
-                    styles.clear
-                  }
-                >
-                  ✕
-                </Text>
-              </Pressable>
-            ) : null}
-          </View>
-
-          <View
-            style={
-              styles.listHeader
-            }
-          >
-            <View
-              style={
-                styles.headerText
+                styles.sectionSubtitle
               }
             >
-              <Text
-                style={
-                  styles.sectionTitle
-                }
-              >
-                AVAILABLE STORES
-              </Text>
-
-              <Text
-                style={
-                  styles.sectionSubtitle
-                }
-              >
-                Tap a store to start
-                attendance.
-              </Text>
-            </View>
-
-            {!loading &&
-            !error ? (
-              <View
-                style={
-                  styles.storeCountBadge
-                }
-              >
-                <Text
-                  style={
-                    styles.storeCount
-                  }
-                >
-                  {stores.length}
-                </Text>
-              </View>
-            ) : null}
+              Tap a store to start
+              attendance.
+            </Text>
           </View>
-
-          {loading ? (
-            <View
-              style={
-                styles.loadingContainer
-              }
-            >
-              <ActivityIndicator
-                size="large"
-                color="#2563eb"
-              />
-
-              <Text
-                style={
-                  styles.loadingText
-                }
-              >
-                Loading stores...
-              </Text>
-            </View>
-          ) : null}
 
           {!loading &&
-          error ? (
+          !error ? (
             <View
               style={
-                styles.errorCard
+                styles.storeCountBadge
               }
             >
               <Text
                 style={
-                  styles.errorIcon
+                  styles.storeCount
                 }
               >
-                ⚠️
+                {stores.length}
               </Text>
-
-              <Text
-                style={
-                  styles.errorTitle
-                }
-              >
-                Unable to load stores
-              </Text>
-
-              <Text
-                style={
-                  styles.errorText
-                }
-              >
-                {error}
-              </Text>
-
-              <Pressable
-                style={
-                  styles.retryButton
-                }
-                onPress={() =>
-                  loadStores(
-                    query
-                  )
-                }
-              >
-                <Text
-                  style={
-                    styles.retryText
-                  }
-                >
-                  TRY AGAIN
-                </Text>
-              </Pressable>
             </View>
           ) : null}
-        </>
-      );
-    };
+        </View>
+
+        {loading ? (
+          <View
+            style={
+              styles.loadingContainer
+            }
+          >
+            <ActivityIndicator
+              size="large"
+              color="#2563eb"
+            />
+
+            <Text
+              style={
+                styles.loadingText
+              }
+            >
+              Loading stores...
+            </Text>
+          </View>
+        ) : null}
+
+        {!loading &&
+        error ? (
+          <View
+            style={
+              styles.errorCard
+            }
+          >
+            <Text
+              style={
+                styles.errorIcon
+              }
+            >
+              ⚠️
+            </Text>
+
+            <Text
+              style={
+                styles.errorTitle
+              }
+            >
+              Unable to load stores
+            </Text>
+
+            <Text
+              style={
+                styles.errorText
+              }
+            >
+              {error}
+            </Text>
+
+            <Pressable
+              style={
+                styles.retryButton
+              }
+              onPress={() =>
+                loadStores(
+                  query
+                )
+              }
+            >
+              <Text
+                style={
+                  styles.retryText
+                }
+              >
+                TRY AGAIN
+              </Text>
+            </Pressable>
+          </View>
+        ) : null}
+      </>
+    );
 
   /*
    * ============================================================
@@ -588,12 +600,6 @@ export default function StoresScreen() {
       );
     };
 
-  /*
-   * ============================================================
-   * SCREEN
-   * ============================================================
-   */
-
   return (
     <ScreenContainer
       title="Select Store"
@@ -630,12 +636,6 @@ export default function StoresScreen() {
     </ScreenContainer>
   );
 }
-
-/*
- * ============================================================
- * STYLES
- * ============================================================
- */
 
 const styles = StyleSheet.create({
   searchContainer: {

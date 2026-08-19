@@ -94,3 +94,34 @@ CREATE POLICY "admin_manage_audit_logs"
   ON public.audit_logs FOR ALL
   USING (public.is_admin())
   WITH CHECK (public.is_admin());
+
+-- Allow sales reps to create stores, not just admins
+--
+-- app/(sales)/add-store.tsx lets a sales rep add a store while physically
+-- standing at it (GPS-verified against the coordinates being submitted,
+-- see calculateDistanceMeters()/verifyUserIsAtStore() in that screen).
+-- Previously this wrote to on-device storage only (src/services/
+-- localStoreService.ts) because the "admin_manage_stores" policy from
+-- 002_rls_policies.sql restricts INSERT/UPDATE/DELETE on public.stores to
+-- admins, which would have rejected a plain insert from a sales account.
+--
+-- This adds a second, narrower INSERT policy for sales rather than
+-- widening admin_manage_stores itself: sales reps may only INSERT, and
+-- only with status = 'active' and the same fixed 50m radius the app
+-- already enforces client-side (STORE_RADIUS_METERS in add-store.tsx).
+-- UPDATE/DELETE on stores -- store_code, name, coordinates, radius,
+-- status -- remain admin-only via admin_manage_stores. (Sales-editable
+-- visit-detail fields go through update_store_visit_details() from
+-- 007_store_visit_details.sql instead, which is scoped to those four
+-- columns regardless of table-level RLS.)
+--
+-- Postgres RLS policies for the same command are combined with OR, so this
+-- policy adds to admin_manage_stores rather than replacing it -- admins
+-- keep full access, sales gain this one additional path.
+CREATE POLICY "sales_create_stores"
+  ON public.stores FOR INSERT
+  WITH CHECK (
+    auth.role() = 'authenticated'
+    AND status = 'active'
+    AND radius_meters = 50
+  );

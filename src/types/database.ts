@@ -61,6 +61,10 @@ export interface Database {
           longitude: number;
           radius_meters: number;
           status: EntityStatus;
+          phone_number: string;
+          owner_name: string;
+          usual_order: string;
+          notes: string;
           created_at: string;
         };
         Insert: {
@@ -72,6 +76,10 @@ export interface Database {
           longitude: number;
           radius_meters?: number;
           status?: EntityStatus;
+          phone_number?: string;
+          owner_name?: string;
+          usual_order?: string;
+          notes?: string;
           created_at?: string;
         };
         Update: {
@@ -83,6 +91,10 @@ export interface Database {
           longitude?: number;
           radius_meters?: number;
           status?: EntityStatus;
+          phone_number?: string;
+          owner_name?: string;
+          usual_order?: string;
+          notes?: string;
           created_at?: string;
         };
         Relationships: [];
