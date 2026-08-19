@@ -27,9 +27,20 @@ export default function AttendancePreviewScreen() {
     getCurrentPosition,
   } = useGpsVerification();
 
-  const [submitting, setSubmitting] = useState(false);
+  const [submitting, setSubmitting] =
+    useState(false);
+
+  /*
+   * ============================================================
+   * NO PHOTO
+   * ============================================================
+   */
 
   if (!photoUri) {
+    console.log(
+      '⚠️ ATTENDANCE PREVIEW: No photo URI'
+    );
+
     return (
       <ScreenContainer title="No Photo">
         <PrimaryButton
@@ -44,8 +55,35 @@ export default function AttendancePreviewScreen() {
     );
   }
 
+  /*
+   * ============================================================
+   * SUBMIT ATTENDANCE
+   * ============================================================
+   */
+
   const handleSubmit = async () => {
+    console.log('');
+    console.log(
+      '================================================'
+    );
+    console.log(
+      '🚀 ATTENDANCE SUBMISSION STARTED'
+    );
+    console.log(
+      '================================================'
+    );
+
+    /*
+     * ============================================================
+     * STORE CHECK
+     * ============================================================
+     */
+
     if (!selectedStore) {
+      console.error(
+        '❌ ATTENDANCE ERROR: No store selected'
+      );
+
       Alert.alert(
         'No Store Selected',
         'Please select a store first.',
@@ -53,7 +91,9 @@ export default function AttendancePreviewScreen() {
           {
             text: 'OK',
             onPress: () =>
-              router.replace('/(sales)/stores'),
+              router.replace(
+                '/(sales)/stores'
+              ),
           },
         ]
       );
@@ -61,51 +101,160 @@ export default function AttendancePreviewScreen() {
       return;
     }
 
+    /*
+     * ============================================================
+     * DEBUG SELECTED STORE
+     * ============================================================
+     */
+
+    console.log('');
+    console.log(
+      '🏪 SELECTED STORE'
+    );
+
+    console.log({
+      id: selectedStore.id,
+      store_code:
+        selectedStore.store_code,
+      name:
+        selectedStore.name,
+      address:
+        selectedStore.address,
+      latitude:
+        selectedStore.latitude,
+      longitude:
+        selectedStore.longitude,
+      radius_meters:
+        selectedStore.radius_meters,
+      status:
+        selectedStore.status,
+    });
+
+    console.log(
+      '🏪 STORE ID BEING USED:',
+      selectedStore.id
+    );
+
+    console.log(
+      '🏪 STORE NAME:',
+      selectedStore.name
+    );
+
+    /*
+     * ============================================================
+     * DEBUG ORIGINAL PHOTO
+     * ============================================================
+     */
+
+    console.log('');
+    console.log(
+      '📸 ORIGINAL PHOTO'
+    );
+
+    console.log(
+      'Photo URI:',
+      photoUri
+    );
+
     setSubmitting(true);
 
     try {
       /*
-       * ----------------------------------------------------------
-       * 1. Compress the attendance image FIRST.
-       *
-       * This is now the image that will be used for both:
-       * - face detection
-       * - attendance upload
-       * ----------------------------------------------------------
+       * ============================================================
+       * STEP 1 — COMPRESS IMAGE
+       * ============================================================
        */
-      console.log('Compressing attendance image...');
+
+      console.log('');
+      console.log(
+        '================================================'
+      );
+      console.log(
+        '📦 STEP 1 — COMPRESSING ATTENDANCE IMAGE'
+      );
+      console.log(
+        '================================================'
+      );
+
+      console.log(
+        'Original image:',
+        photoUri
+      );
 
       const compressedImage =
-        await compressAttendanceImage(photoUri);
+        await compressAttendanceImage(
+          photoUri
+        );
 
       console.log(
-        'Attendance image compressed:',
-        {
-          uri: compressedImage.uri,
-          width: compressedImage.width,
-          height: compressedImage.height,
-        }
+        '✅ IMAGE COMPRESSION SUCCESSFUL'
       );
 
-      /*
-       * ----------------------------------------------------------
-       * 2. Run face detection against the compressed image.
-       * ----------------------------------------------------------
-       */
+      console.log({
+        uri:
+          compressedImage.uri,
+        width:
+          compressedImage.width,
+        height:
+          compressedImage.height,
+      });
+
       console.log(
-        'Running face detection on compressed image...'
-      );
-
-      const faceResult = await detectFace(
+        'Compressed image URI:',
         compressedImage.uri
       );
 
+      /*
+       * ============================================================
+       * STEP 2 — FACE DETECTION
+       * ============================================================
+       */
+
+      console.log('');
       console.log(
-        'Face detection result:',
-        faceResult
+        '================================================'
+      );
+      console.log(
+        '👤 STEP 2 — FACE DETECTION'
+      );
+      console.log(
+        '================================================'
       );
 
+      console.log(
+        'Sending compressed image to face detection:'
+      );
+
+      console.log(
+        compressedImage.uri
+      );
+
+      const faceResult =
+        await detectFace(
+          compressedImage.uri
+        );
+
+      console.log(
+        '👤 FACE DETECTION RESPONSE:'
+      );
+
+      console.log({
+        hasFace:
+          faceResult.hasFace,
+        message:
+          faceResult.message,
+      });
+
       if (!faceResult.hasFace) {
+        console.error(
+          '❌ FACE DETECTION FAILED'
+        );
+
+        console.error(
+          'Reason:',
+          faceResult.message
+        );
+
         Alert.alert(
           'No Face Detected',
           faceResult.message ||
@@ -115,14 +264,42 @@ export default function AttendancePreviewScreen() {
         return;
       }
 
+      console.log(
+        '✅ FACE DETECTED'
+      );
+
       /*
-       * ----------------------------------------------------------
-       * 3. Face exists, so continue with GPS verification.
-       * ----------------------------------------------------------
+       * ============================================================
+       * STEP 3 — GPS PERMISSION
+       * ============================================================
        */
-      const permitted = await requestPermission();
+
+      console.log('');
+      console.log(
+        '================================================'
+      );
+      console.log(
+        '📍 STEP 3 — REQUESTING GPS PERMISSION'
+      );
+      console.log(
+        '================================================'
+      );
+
+      const permitted =
+        await requestPermission();
+
+      console.log(
+        'GPS permission:',
+        permitted
+          ? 'GRANTED'
+          : 'DENIED'
+      );
 
       if (!permitted) {
+        console.error(
+          '❌ GPS PERMISSION DENIED'
+        );
+
         Alert.alert(
           'Location Required',
           'Location permission is required to submit attendance.'
@@ -131,9 +308,39 @@ export default function AttendancePreviewScreen() {
         return;
       }
 
-      const reading = await getCurrentPosition();
+      console.log(
+        '✅ GPS PERMISSION GRANTED'
+      );
+
+      /*
+       * ============================================================
+       * STEP 4 — GET CURRENT GPS
+       * ============================================================
+       */
+
+      console.log('');
+      console.log(
+        '================================================'
+      );
+      console.log(
+        '📍 STEP 4 — GETTING CURRENT GPS'
+      );
+      console.log(
+        '================================================'
+      );
+
+      console.log(
+        'Requesting current device location...'
+      );
+
+      const reading =
+        await getCurrentPosition();
 
       if (!reading) {
+        console.error(
+          '❌ GPS READING FAILED'
+        );
+
         Alert.alert(
           'Location Unavailable',
           'Could not get your current location. Check that location services are enabled and try again.'
@@ -142,54 +349,306 @@ export default function AttendancePreviewScreen() {
         return;
       }
 
-      const clientCapturedAt =
-        new Date().toISOString();
-
-      /*
-       * ----------------------------------------------------------
-       * 4. Submit the COMPRESSED image.
-       *
-       * IMPORTANT:
-       * Do NOT pass the original photoUri here.
-       *
-       * Passing compressedImage.uri means attendanceService
-       * receives the already-compressed image and uploads it.
-       * ----------------------------------------------------------
-       */
       console.log(
-        'Submitting compressed attendance image...'
+        '✅ GPS READING RECEIVED'
       );
 
-      const result = await submitAttendance({
-        storeId: selectedStore.id,
-        latitude: reading.latitude,
-        longitude: reading.longitude,
-        gpsAccuracy: reading.accuracy,
-        clientCapturedAt,
-
-        // THIS IS THE IMPORTANT CHANGE:
-        photoUri: compressedImage.uri,
+      console.log({
+        latitude:
+          reading.latitude,
+        longitude:
+          reading.longitude,
+        accuracy:
+          reading.accuracy,
+        timestamp:
+          reading.timestamp,
       });
 
       /*
-       * ----------------------------------------------------------
-       * 5. Save the server result.
-       * ----------------------------------------------------------
+       * ============================================================
+       * STEP 5 — COMPARE GPS WITH STORE
+       * ============================================================
        */
-      setLastSubmission(result);
+
+      console.log('');
+      console.log(
+        '================================================'
+      );
+      console.log(
+        '📍 GPS VS STORE'
+      );
+      console.log(
+        '================================================'
+      );
+
+      console.log(
+        'STORE LOCATION:',
+        {
+          latitude:
+            selectedStore.latitude,
+          longitude:
+            selectedStore.longitude,
+          radius:
+            selectedStore.radius_meters,
+        }
+      );
+
+      console.log(
+        'USER LOCATION:',
+        {
+          latitude:
+            reading.latitude,
+          longitude:
+            reading.longitude,
+          accuracy:
+            reading.accuracy,
+        }
+      );
 
       /*
-       * Clear local photo after successful submission.
+       * ============================================================
+       * STEP 6 — TIMESTAMP
+       * ============================================================
        */
+
+      const clientCapturedAt =
+        new Date().toISOString();
+
+      console.log('');
+      console.log(
+        '🕐 CLIENT CAPTURED AT:'
+      );
+
+      console.log(
+        clientCapturedAt
+      );
+
+      /*
+       * ============================================================
+       * STEP 7 — BUILD EXACT PAYLOAD
+       * ============================================================
+       */
+
+      const attendancePayload = {
+        storeId:
+          selectedStore.id,
+
+        latitude:
+          reading.latitude,
+
+        longitude:
+          reading.longitude,
+
+        gpsAccuracy:
+          reading.accuracy,
+
+        clientCapturedAt,
+
+        photoUri:
+          compressedImage.uri,
+      };
+
+      console.log('');
+      console.log(
+        '================================================'
+      );
+      console.log(
+        '📤 EXACT PAYLOAD SENT TO submitAttendance()'
+      );
+      console.log(
+        '================================================'
+      );
+
+      console.log(
+        JSON.stringify(
+          attendancePayload,
+          null,
+          2
+        )
+      );
+
+      console.log(
+        '================================================'
+      );
+
+      /*
+       * ============================================================
+       * INDIVIDUAL PAYLOAD VALUES
+       * ============================================================
+       */
+
+      console.log('');
+      console.log(
+        '📤 DATABASE SUBMISSION VALUES'
+      );
+
+      console.log(
+        'storeId:',
+        attendancePayload.storeId
+      );
+
+      console.log(
+        'latitude:',
+        attendancePayload.latitude
+      );
+
+      console.log(
+        'longitude:',
+        attendancePayload.longitude
+      );
+
+      console.log(
+        'gpsAccuracy:',
+        attendancePayload.gpsAccuracy
+      );
+
+      console.log(
+        'clientCapturedAt:',
+        attendancePayload.clientCapturedAt
+      );
+
+      console.log(
+        'photoUri:',
+        attendancePayload.photoUri
+      );
+
+      /*
+       * ============================================================
+       * STEP 8 — SUBMIT
+       * ============================================================
+       */
+
+      console.log('');
+      console.log(
+        '================================================'
+      );
+      console.log(
+        '🌐 STEP 5 — CALLING submitAttendance()'
+      );
+      console.log(
+        '================================================'
+      );
+
+      const result =
+        await submitAttendance(
+          attendancePayload
+        );
+
+      /*
+       * ============================================================
+       * STEP 9 — BACKEND RESPONSE
+       * ============================================================
+       */
+
+      console.log('');
+      console.log(
+        '================================================'
+      );
+      console.log(
+        '📥 ATTENDANCE BACKEND RESPONSE'
+      );
+      console.log(
+        '================================================'
+      );
+
+      console.log(
+        JSON.stringify(
+          result,
+          null,
+          2
+        )
+      );
+
+      console.log(
+        '================================================'
+      );
+
+      console.log(
+        '✅ ATTENDANCE SUBMISSION SUCCESSFUL'
+      );
+
+      /*
+       * ============================================================
+       * STEP 10 — SAVE RESULT
+       * ============================================================
+       */
+
+      setLastSubmission(
+        result
+      );
+
+      console.log(
+        '✅ Last submission saved to AttendanceFlowContext'
+      );
+
+      /*
+       * ============================================================
+       * STEP 11 — CLEAR PHOTO
+       * ============================================================
+       */
+
       setPhotoUri(null);
+
+      console.log(
+        '🧹 Photo URI cleared from AttendanceFlowContext'
+      );
+
+      /*
+       * ============================================================
+       * STEP 12 — NAVIGATE
+       * ============================================================
+       */
+
+      console.log(
+        '➡️ Navigating to attendance result...'
+      );
 
       router.replace(
         '/(sales)/attendance/result'
       );
+
     } catch (error) {
+      /*
+       * ============================================================
+       * ERROR
+       * ============================================================
+       */
+
+      console.error('');
       console.error(
-        'ATTENDANCE SUBMISSION ERROR:',
+        '================================================'
+      );
+      console.error(
+        '❌ ATTENDANCE SUBMISSION ERROR'
+      );
+      console.error(
+        '================================================'
+      );
+
+      console.error(
+        'Raw error:',
         error
+      );
+
+      if (error instanceof Error) {
+        console.error(
+          'Error name:',
+          error.name
+        );
+
+        console.error(
+          'Error message:',
+          error.message
+        );
+
+        console.error(
+          'Error stack:',
+          error.stack
+        );
+      }
+
+      console.error(
+        '================================================'
       );
 
       Alert.alert(
@@ -198,24 +657,60 @@ export default function AttendancePreviewScreen() {
           ? error.message
           : 'Could not submit attendance. Please try again.'
       );
+
     } finally {
+      /*
+       * ============================================================
+       * FINISH
+       * ============================================================
+       */
+
+      console.log('');
+      console.log(
+        '🏁 ATTENDANCE SUBMISSION FLOW FINISHED'
+      );
+      console.log('');
+
       setSubmitting(false);
     }
   };
+
+  /*
+   * ============================================================
+   * UI
+   * ============================================================
+   */
 
   return (
     <ScreenContainer
       title="Preview Photo"
       subtitle={
-        selectedStore?.name ?? 'Attendance photo'
+        selectedStore?.name ??
+        'Attendance photo'
       }
     >
-      <View style={styles.imageContainer}>
+      {/* ========================================================
+          PHOTO PREVIEW
+      ========================================================= */}
+
+      <View
+        style={
+          styles.imageContainer
+        }
+      >
         <Image
-          source={{ uri: photoUri }}
-          style={styles.image}
+          source={{
+            uri: photoUri,
+          }}
+          style={
+            styles.image
+          }
         />
       </View>
+
+      {/* ========================================================
+          SUBMIT
+      ========================================================= */}
 
       <PrimaryButton
         title={
@@ -223,25 +718,45 @@ export default function AttendancePreviewScreen() {
             ? 'Checking & Submitting...'
             : 'Submit Attendance'
         }
-        loading={submitting}
-        disabled={submitting}
-        onPress={handleSubmit}
+        loading={
+          submitting
+        }
+        disabled={
+          submitting
+        }
+        onPress={
+          handleSubmit
+        }
       />
+
+      {/* ========================================================
+          RETAKE
+      ========================================================= */}
 
       <PrimaryButton
         title="Retake"
         variant="secondary"
-        disabled={submitting}
+        disabled={
+          submitting
+        }
         onPress={() =>
           router.replace(
             '/(sales)/attendance/camera'
           )
         }
-        style={styles.button}
+        style={
+          styles.button
+        }
       />
     </ScreenContainer>
   );
 }
+
+/*
+ * ================================================================
+ * STYLES
+ * ================================================================
+ */
 
 const styles = StyleSheet.create({
   imageContainer: {
@@ -249,7 +764,8 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     borderRadius: 12,
     overflow: 'hidden',
-    backgroundColor: '#f1f5f9',
+    backgroundColor:
+      '#f1f5f9',
   },
 
   image: {

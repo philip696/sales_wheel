@@ -1,4 +1,4 @@
-iimport { FormInput } from '@/src/components/FormInput';
+import { FormInput } from '@/src/components/FormInput';
 import { PrimaryButton } from '@/src/components/PrimaryButton';
 import { ScreenContainer } from '@/src/components/ScreenContainer';
 import { useGpsVerification } from '@/src/features/gps/useGpsVerification';
@@ -6,22 +6,22 @@ import { geocodeAddress } from '@/src/services/geocodingService';
 import { createStore } from '@/src/services/storeService';
 import type { StoreInput } from '@/src/types';
 import {
-  isValidStoreCode,
-  isValidStoreName,
+    isValidStoreCode,
+    isValidStoreName,
 } from '@/src/utils/validation';
 import { router } from 'expo-router';
 import { useState } from 'react';
 
 import {
-  ActivityIndicator,
-  Alert,
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
+    ActivityIndicator,
+    Alert,
+    KeyboardAvoidingView,
+    Platform,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Text,
+    View,
 } from 'react-native';
 
 const STORE_RADIUS_METERS = 50;

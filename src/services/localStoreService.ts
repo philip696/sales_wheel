@@ -1,4 +1,4 @@
-import * as SecureStore from 'expo-secure-store';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import type { Store } from '@/src/types';
 
@@ -34,7 +34,7 @@ export async function getLocalStores(): Promise<
 > {
   try {
     const raw =
-      await SecureStore.getItemAsync(
+      await AsyncStorage.getItem(
         STORAGE_KEY
       );
 
@@ -69,7 +69,7 @@ export async function getLocalStores(): Promise<
 async function saveLocalStores(
   stores: LocalStore[]
 ): Promise<void> {
-  await SecureStore.setItemAsync(
+  await AsyncStorage.setItem(
     STORAGE_KEY,
     JSON.stringify(stores)
   );
