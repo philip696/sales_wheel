@@ -1,86 +1,102 @@
+Yes — I’ll keep the **old README’s overall structure and section order**, but rewrite the contents so they accurately reflect the current `backend-api` branch and its actual files.
+
+The existing README already establishes the structure around **Tech Stack → Quick Start → What the App Does → App Flow → Route Structure → Auth → Sales Flow → Attendance → Spin → Admin → Data Model → Services → Configuration → Status → Development Workflow → Security → Architecture → Database → Business Rules → Project Structure → Final Architecture Principle**. ([GitHub][1])
+
+I would preserve that organization rather than replacing it with a completely different README.
+
 # Sales Attendance & Spin Wheel App
 
 This app is a mobile sales workflow system built with **Expo Router, React Native, TypeScript, and Supabase**.
 
-It handles three main things:
+It is designed around the sales visit lifecycle:
 
-1. Sales sign up and sign in.
-2. Attendance verification with GPS and camera evidence.
-3. A backend-controlled spin wheel reward flow.
+1. Sales users sign up and sign in.
+2. Sales users select a store.
+3. The app verifies the user's GPS position relative to the store.
+4. The user captures attendance evidence using the device camera.
+5. The captured photo is checked for a face before continuing.
+6. Attendance evidence is submitted through the application service layer to Supabase.
+7. Supabase applies the authoritative attendance rules.
+8. Approved attendance allows the user to request a spin.
+9. Supabase validates spin eligibility and selects the reward.
+10. The mobile app displays the result.
 
-The main design principle is that the frontend only coordinates the flow.
+The main architectural principle is:
 
-> **The backend is the source of truth** for approval, reward eligibility, duplicate prevention, access control, and audit logging.
+> **The frontend coordinates the workflow; Supabase enforces the business rules.**
+
+The mobile application should never be treated as the authority for attendance approval, GPS approval, reward selection, duplicate prevention, or authorization.
 
 ---
 
-## Tech Stack
+# Tech Stack
 
-| Technology                     |                 Version |
-| ------------------------------ | ----------------------: |
+| Technology                     | Version                 |
+| ------------------------------ | ----------------------- |
 | Node.js                        | See project environment |
 | npm                            | See project environment |
-| Expo                           |              `~54.0.36` |
-| Expo SDK                       |                    `54` |
-| React                          |                `19.1.0` |
-| React DOM                      |                `19.1.0` |
-| React Native                   |                `0.81.5` |
-| TypeScript                     |                `~5.9.2` |
-| Expo Router                    |               `~6.0.24` |
-| Supabase JS                    |              `^2.112.2` |
-| React Native Reanimated        |                `~4.1.1` |
-| React Native Screens           |               `~4.16.0` |
-| React Native Safe Area Context |                `~5.6.1` |
-| React Native Web               |               `~0.21.0` |
+| Expo                           | `~54.0.36`              |
+| Expo SDK                       | `54`                    |
+| React                          | `19.1.0`                |
+| React Native                   | `0.81.5`                |
+| TypeScript                     | `~5.9.2`                |
+| Expo Router                    | `~6.0.24`               |
+| Supabase JS                    | `^2.112.2`              |
+| React Native Reanimated        | `~4.1.1`                |
+| React Native Screens           | `~4.16.0`               |
+| React Native Safe Area Context | `~5.6.1`                |
+| Expo Camera                    | `~17.0.10`              |
+| Expo Location                  | `~19.0.8`               |
+| Expo Secure Store              | `~15.0.8`               |
 
-### Complete Dependency Versions
+## Complete Dependency Versions
 
-#### Runtime Dependencies
+### Runtime Dependencies
 
-| Package                                     |    Version |
-| ------------------------------------------- | ---------: |
-| `@react-native-async-storage/async-storage` |    `2.2.0` |
+| Package                                     | Version    |
+| ------------------------------------------- | ---------- |
+| `@react-native-async-storage/async-storage` | `2.2.0`    |
 | `@supabase/supabase-js`                     | `^2.112.2` |
 | `expo`                                      | `~54.0.36` |
 | `expo-camera`                               | `~17.0.10` |
 | `expo-constants`                            | `~18.0.13` |
 | `expo-font`                                 | `~14.0.12` |
-| `expo-linking`                              |  `~8.0.12` |
-| `expo-location`                             |  `~19.0.8` |
-| `expo-router`                               |  `~6.0.24` |
-| `expo-secure-store`                         |  `~15.0.8` |
+| `expo-linking`                              | `~8.0.12`  |
+| `expo-location`                             | `~19.0.8`  |
+| `expo-router`                               | `~6.0.24`  |
+| `expo-secure-store`                         | `~15.0.8`  |
 | `expo-splash-screen`                        | `~31.0.12` |
-| `expo-status-bar`                           |   `~3.0.9` |
-| `expo-symbols`                              |   `~1.0.8` |
+| `expo-status-bar`                           | `~3.0.9`   |
+| `expo-symbols`                              | `~1.0.8`   |
 | `expo-web-browser`                          | `~15.0.11` |
-| `react`                                     |   `19.1.0` |
-| `react-dom`                                 |   `19.1.0` |
-| `react-native`                              |   `0.81.5` |
-| `react-native-reanimated`                   |   `~4.1.1` |
-| `react-native-safe-area-context`            |   `~5.6.1` |
-| `react-native-screens`                      |  `~4.16.0` |
-| `react-native-url-polyfill`                 |   `^4.0.0` |
-| `react-native-web`                          |  `~0.21.0` |
-| `react-native-worklets`                     |    `0.5.1` |
+| `react`                                     | `19.1.0`   |
+| `react-dom`                                 | `19.1.0`   |
+| `react-native`                              | `0.81.5`   |
+| `react-native-reanimated`                   | `~4.1.1`   |
+| `react-native-safe-area-context`            | `~5.6.1`   |
+| `react-native-screens`                      | `~4.16.0`  |
+| `react-native-url-polyfill`                 | `^4.0.0`   |
+| `react-native-web`                          | `~0.21.0`  |
+| `react-native-worklets`                     | `0.5.1`    |
 
-#### Development Dependencies
+### Development Dependencies
 
-| Package             |    Version |
-| ------------------- | ---------: |
-| `@types/react`      |  `~19.1.0` |
+| Package             | Version    |
+| ------------------- | ---------- |
+| `@types/react`      | `~19.1.0`  |
 | `babel-preset-expo` | `~54.0.12` |
-| `typescript`        |   `~5.9.2` |
+| `typescript`        | `~5.9.2`   |
 
-### Application Version
+## Application Version
 
 ```text
 Application: sales-spin-app-v2
 Version: 1.0.0
 ```
 
-### Expo / React Native Compatibility
+## Expo / React Native Compatibility
 
-The project currently targets:
+The current branch targets:
 
 ```text
 Expo SDK       54
@@ -91,7 +107,7 @@ Expo Router    ~6.0.24
 TypeScript     ~5.9.2
 ```
 
-> **Version source of truth:** `package.json` defines the direct dependency versions for this project. `package-lock.json` contains the complete resolved dependency tree.
+`package.json` is the source of truth for direct dependency versions, while `package-lock.json` contains the resolved dependency tree.
 
 ---
 
@@ -103,14 +119,22 @@ npm install
 npm start
 ```
 
-The current branch already points at a Supabase project in:
+The Expo application connects to Supabase through:
 
 ```text
 src/lib/config.ts
 src/lib/supabase.ts
 ```
 
-If you want to swap environments, update those files or wire them to environment variables first.
+The face-detection service is configured through:
+
+```text
+EXPO_PUBLIC_FACE_API_URL
+```
+
+For a physical phone, the face-service URL must normally use the computer's LAN IP rather than `localhost`.
+
+---
 
 ## Available Scripts
 
@@ -142,16 +166,41 @@ npm run web
 
 # What the App Does
 
-The app is structured around the sales visit lifecycle:
+The application is structured around the sales visit lifecycle:
 
-1. A user creates an account or signs in.
-2. The app loads the user profile from `public.sales`.
-3. The user selects a store.
-4. The app verifies the user is physically near that store.
-5. The user captures a fresh photo using the camera.
-6. The app sends the evidence to Supabase for server-side attendance validation.
-7. If attendance is approved, the user requests a spin.
-8. The backend selects the reward and enforces the one-spin-per-store-per-day rule.
+```text
+User
+ ↓
+Authentication
+ ↓
+Sales Profile
+ ↓
+Store Selection
+ ↓
+GPS Verification
+ ↓
+Camera Capture
+ ↓
+Face Detection
+ ↓
+Attendance Submission
+ ↓
+Backend Attendance Validation
+ ↓
+Approved Attendance
+ ↓
+Spin Request
+ ↓
+Backend Eligibility Validation
+ ↓
+Server-Side Reward Selection
+ ↓
+Reward Result
+```
+
+The frontend collects the information and presents the result.
+
+Supabase is responsible for determining whether the operation is valid.
 
 ---
 
@@ -159,71 +208,102 @@ The app is structured around the sales visit lifecycle:
 
 ## Authentication Flow
 
-```mermaid
-flowchart TD
-  A[App Launch] --> B[Root Layout]
-  B --> C[AuthProvider]
-  B --> D[AttendanceFlowProvider]
-  C --> E[Get Session]
-  E --> F{Session exists?}
-  F -- No --> G[/auth/login]
-  F -- Yes --> H[Load Sales Profile]
-  H --> I{Role admin?}
-  I -- Yes --> J[/admin]
-  I -- No --> K[/(sales)]
+```text
+App Launch
+    ↓
+Root Layout
+    ↓
+AuthProvider
+    ↓
+Get Session
+    ↓
+Session exists?
+   / \
+ No   Yes
+ ↓     ↓
+Login  Load Sales Profile
+       ↓
+       Role?
+      /    \
+   Admin   Sales
+     ↓       ↓
+  /admin  /(sales)
 ```
+
+The root application initializes authentication and determines which part of the application the user should enter.
+
+---
 
 ## Attendance and Spin Flow
 
-```mermaid
-flowchart TD
-  A[Select Store] --> B[GPS Verification]
-  B --> C{Within Radius?}
-  C -- No --> D[Reject and log audit event]
-  C -- Yes --> E[Camera Capture]
-  E --> F[Preview]
-  F --> G[Submit Attendance RPC]
-  G --> H{Approved?}
-  H -- No --> I[Show rejection reason]
-  H -- Yes --> J[Request Spin RPC]
-  J --> K[Spin Reward]
+```text
+Select Store
+     ↓
+GPS Verification
+     ↓
+Within Radius?
+   /        \
+ No          Yes
+ ↓            ↓
+Reject     Camera Capture
+              ↓
+          Face Detection
+              ↓
+           Preview
+              ↓
+      Submit Attendance
+              ↓
+       Backend Validation
+              ↓
+       Attendance Approved?
+          /          \
+        No            Yes
+        ↓              ↓
+   Show Reason     Request Spin
+                       ↓
+                Backend Validation
+                       ↓
+                Weighted Reward
+                       ↓
+                  Spin Result
 ```
 
 ---
 
 # Route Structure
 
-The `app/` directory is the navigation tree. Each file is a screen or layout.
+The `app/` directory is the application's navigation tree.
+
+Each route represents a screen or navigation layout.
 
 ```text
 app/
-  _layout.tsx              Root provider and stack setup
-  index.tsx                Redirect gate based on auth + role
-
-  auth/
-    login.tsx              Sign in screen
-    signup.tsx             Sign up screen
-
-  (sales)/
-    _layout.tsx            Sales flow stack
-    index.tsx              Sales home
-    stores.tsx             Store search and selection
-
-    attendance/
-      index.tsx            GPS verification
-      camera.tsx            Camera capture
-      preview.tsx           Attendance preview
-      result.tsx            Attendance result
-
-    spin/
-      index.tsx             Spin wheel
-      result.tsx            Reward result
-
-    history.tsx             Attendance and spin history
-
-  admin/
-    _layout.tsx             Admin stack
-    *.tsx                   Admin dashboard and scaffolds
+├── _layout.tsx
+├── index.tsx
+│
+├── auth/
+│   ├── login.tsx
+│   └── signup.tsx
+│
+├── (sales)/
+│   ├── _layout.tsx
+│   ├── index.tsx
+│   ├── stores.tsx
+│   ├── history.tsx
+│   │
+│   ├── attendance/
+│   │   ├── index.tsx
+│   │   ├── camera.tsx
+│   │   ├── preview.tsx
+│   │   └── result.tsx
+│   │
+│   └── spin/
+│       ├── index.tsx
+│       └── result.tsx
+│
+└── admin/
+    ├── _layout.tsx
+    └── *.tsx
 ```
 
 ---
@@ -232,33 +312,55 @@ app/
 
 ## Root Layout
 
-[`app/_layout.tsx`](app/_layout.tsx) is the top-level bootstrap.
+`app/_layout.tsx` is the top-level application bootstrap.
 
-It:
+It is responsible for:
 
-* loads fonts,
-* prevents the splash screen from hiding too early,
-* initializes the root stack,
-* wraps the application in the required providers.
+* loading fonts,
+* controlling the splash screen,
+* initializing the root navigation stack,
+* loading the required providers.
 
-The two main providers are:
+The main providers are:
 
-* `AuthProvider` for session, profile, sign-in, sign-up, and sign-out.
-* `AttendanceFlowProvider` for cross-screen attendance state such as selected store and captured photo.
+```text
+AuthProvider
+AttendanceFlowProvider
+```
+
+`AuthProvider` manages authentication and the sales profile.
+
+`AttendanceFlowProvider` stores temporary state shared between attendance screens.
 
 ---
 
 ## Redirect Gate
 
-[`app/index.tsx`](app/index.tsx) is the route gate.
+`app/index.tsx` is the application's route gate.
 
-It waits for auth state to finish loading, then:
+After authentication finishes loading:
 
-* redirects to `/auth/login` if there is no session,
-* redirects to `/admin` if the loaded profile has `role === 'admin'`,
-* otherwise redirects to `/(sales)`.
+```text
+No session
+    ↓
+/auth/login
+```
 
-This file is the first place to check if navigation is wrong after login.
+or:
+
+```text
+Session exists
+    ↓
+Load sales profile
+    ↓
+Admin?
+ ┌───────┴───────┐
+Yes              No
+ ↓                ↓
+/admin          /(sales)
+```
+
+This is the first file to inspect when authentication succeeds but navigation goes to the wrong section.
 
 ---
 
@@ -266,81 +368,90 @@ This file is the first place to check if navigation is wrong after login.
 
 ## Auth Context
 
-[`src/features/auth/AuthContext.tsx`](src/features/auth/AuthContext.tsx) is the main auth controller.
+The authentication controller is located in:
+
+```text
+src/features/auth/AuthContext.tsx
+```
 
 It exposes:
 
-* `session`
-* `user`
-* `profile`
-* `isLoading`
-* `isAdmin`
-* `signIn`
-* `signUp`
-* `signOut`
-* `refreshProfile`
+```text
+session
+user
+profile
+isLoading
+isAdmin
+signIn()
+signUp()
+signOut()
+refreshProfile()
+```
 
 ### Session Initialization
 
-The auth flow works as follows:
+The current flow is:
 
-1. `supabase.auth.getSession()` loads the persisted session on startup.
-2. `supabase.auth.onAuthStateChange()` keeps the in-memory session synchronized.
-3. When a session exists, `fetchSalesProfile()` loads the matching row from `public.sales`.
-4. After the profile is loaded, `registerDevice()` records the device in `public.devices`.
+1. `supabase.auth.getSession()` loads the persisted session.
+2. `supabase.auth.onAuthStateChange()` keeps the session synchronized.
+3. When a session exists, the matching `public.sales` profile is loaded.
+4. The device is registered through the device service.
 
 ---
 
 ## Sign In
 
-Sign-in uses the current backend token flow.
+Sign-in uses the current authentication token flow.
 
-`signIn()`:
+The process is:
 
-1. Sends the credentials to the password-token endpoint.
-2. Receives the authentication tokens.
-3. Passes those tokens into `supabase.auth.setSession()`.
-4. Logs a `LOGIN` audit event.
-5. Registers the device.
+1. Submit credentials.
+2. Receive authentication tokens.
+3. Pass the tokens into `supabase.auth.setSession()`.
+4. Record a login audit event.
+5. Register the device.
+6. Load the user's sales profile.
+7. Continue to the appropriate route.
 
 ---
 
 ## Sign Up
 
-Sign-up uses a backend RPC rather than the normal frontend Supabase Auth sign-up flow.
-
-`signUp()` calls:
+Sales registration uses the backend RPC:
 
 ```text
 signup_sales_user
 ```
 
-This allows the backend to:
+The RPC is responsible for the server-side registration process.
 
-* validate account information,
-* check duplicate usernames,
-* check duplicate email addresses,
-* create the authentication user,
-* create the corresponding sales profile.
+It validates:
 
-After successful account creation, the user is sent back to the login screen.
+* username,
+* email,
+* password,
+* duplicate usernames,
+* duplicate email addresses.
 
-Important:
+It then creates the authentication user and corresponding sales profile.
 
-* sign-up is account creation only,
-* sign-in is a separate step,
-* this separation is intentional in the current architecture.
+Sign-up and sign-in are separate operations in the current implementation.
 
 ---
 
 # Login and Sign Up Screens
 
-[`app/auth/login.tsx`](app/auth/login.tsx) and [`app/auth/signup.tsx`](app/auth/signup.tsx) are intentionally simple form screens.
+The screens are:
 
-They primarily handle:
+```text
+app/auth/login.tsx
+app/auth/signup.tsx
+```
+
+These screens primarily handle:
 
 * input,
-* validation,
+* local validation,
 * user feedback,
 * navigation.
 
@@ -348,142 +459,202 @@ They primarily handle:
 
 The login screen:
 
-* validates email format with `isValidEmail()`,
+* validates email format,
 * validates password length,
-* calls `signIn(email, password)`,
-* routes to the sales attendance flow after successful sign-in.
+* calls `signIn()`,
+* navigates into the application after authentication.
 
-It also includes a development-only link to the GPS prototype flow.
+It also contains a development-only GPS prototype entry.
 
 ## Sign Up Screen
 
-The sign-up screen:
+The sign-up screen validates:
 
-* validates username length,
-* validates email format,
-* validates password length,
-* confirms passwords match,
-* calls:
+* username,
+* email,
+* password,
+* password confirmation.
+
+It then calls:
 
 ```text
-signUp({ username, email, password, name })
+signUp({
+  username,
+  email,
+  password,
+  name
+})
 ```
 
-After successful account creation, the user is redirected to login.
+After successful registration, the user returns to the login screen.
 
 ---
 
 # Sales Flow
 
-The sales experience is under:
+The sales application is located under:
 
 ```text
 app/(sales)/
 ```
 
-It is a wizard-like workflow built from route screens and shared transient state.
+The sales workflow is divided into:
+
+```text
+Sales Home
+    ↓
+Store Selection
+    ↓
+Attendance
+    ↓
+Spin
+    ↓
+History
+```
 
 ---
 
 # Sales Home
 
-[`app/(sales)/index.tsx`](app/%28sales%29/index.tsx) is the entry screen for sales users.
+The sales home screen is:
 
-It provides:
+```text
+app/(sales)/index.tsx
+```
 
-* Select Store
-* GPS Prototype
-* View History
-* Sign Out
+It provides entry points for:
+
+* selecting a store,
+* testing the GPS prototype,
+* viewing history,
+* signing out.
 
 ---
 
 # Attendance Flow State
 
-[`src/features/attendance/AttendanceFlowContext.tsx`](src/features/attendance/AttendanceFlowContext.tsx) stores values shared between attendance screens.
+Shared attendance state is handled by:
 
-Current state includes:
+```text
+src/features/attendance/AttendanceFlowContext.tsx
+```
+
+Current transient state includes:
 
 ```text
 selectedStore
 photoUri
 ```
 
-This context exists because the attendance flow spans multiple screens and route transitions.
+The context exists because attendance is a multi-screen workflow.
 
-It is also the reset point when the user wants to start a new attendance flow.
+For example:
+
+```text
+Store Selection
+      ↓
+GPS
+      ↓
+Camera
+      ↓
+Preview
+      ↓
+Result
+```
+
+The selected store and captured photo need to survive those route transitions.
 
 ---
 
 # Store Selection
 
-[`app/(sales)/stores.tsx`](app/%28sales%29/stores.tsx) searches active stores through `searchStores()`.
+The store selection screen is:
 
-The store service is:
+```text
+app/(sales)/stores.tsx
+```
+
+Store access is handled through:
 
 ```text
 src/services/storeService.ts
 ```
 
-It:
+The service searches active stores and supports:
 
-* queries `public.stores`,
-* filters to `status = 'active'`,
-* supports pagination,
-* sanitizes the search string,
-* searches by store name,
-* searches by store code,
-* searches by address.
+* store name search,
+* store code search,
+* address search,
+* pagination,
+* search sanitization.
 
-When a user selects a store:
+The store data comes from:
 
-1. The store is stored in `AttendanceFlowContext`.
-2. The user is navigated into the attendance flow.
+```text
+public.stores
+```
+
+After selecting a store:
+
+```text
+Selected Store
+      ↓
+AttendanceFlowContext
+      ↓
+Attendance Flow
+```
 
 ---
 
 # GPS Verification
 
-[`app/(sales)/attendance/index.tsx`](app/%28sales%29/attendance/index.tsx) is the GPS verification screen.
+The GPS verification screen is:
 
-The GPS logic lives in:
+```text
+app/(sales)/attendance/index.tsx
+```
+
+GPS logic is handled by:
 
 ```text
 src/features/gps/useGpsVerification.ts
 ```
 
-It:
-
-* requests foreground location permission,
-* reads the current position with high accuracy,
-* calculates distance from the selected store,
-* determines whether the user is within the configured radius,
-* returns a structured verification result.
-
-The distance calculation is implemented in:
+Distance calculations are implemented in:
 
 ```text
 src/utils/distance.ts
 ```
 
-It uses the **Haversine formula** to calculate distance in meters.
+The distance utility uses the Haversine formula and returns the distance in meters.
 
-### Important Security Rule
+The GPS flow:
 
-The frontend GPS check is not authoritative.
+1. Request foreground location permission.
+2. Read the current location.
+3. Obtain GPS accuracy.
+4. Calculate distance from the selected store.
+5. Compare the distance against the configured store radius.
+6. Return the verification result.
 
-The backend performs the GPS validation again when attendance is submitted.
+---
 
-Therefore:
+## Important Security Rule
+
+The frontend GPS calculation is **not authoritative**.
+
+The architecture is:
 
 ```text
-Frontend GPS check
-        ↓
-User feedback / UX
-        ↓
-Backend GPS check
-        ↓
-Authoritative approval or rejection
+Frontend GPS
+     ↓
+User feedback
+     ↓
+Attendance submission
+     ↓
+Backend GPS validation
+     ↓
+Authoritative result
 ```
 
 The frontend cannot simply mark an attendance as approved.
@@ -492,108 +663,142 @@ The frontend cannot simply mark an attendance as approved.
 
 # Camera Capture
 
-[`app/(sales)/attendance/camera.tsx`](app/%28sales%29/attendance/camera.tsx) uses `expo-camera`.
+The camera screen is:
 
-The application intentionally uses camera capture rather than a gallery picker.
+```text
+app/(sales)/attendance/camera.tsx
+```
 
-The camera flow is:
+It uses:
+
+```text
+expo-camera
+```
+
+The attendance flow intentionally uses the device camera instead of a gallery picker.
+
+The current process is:
 
 1. Request camera permission.
 2. Open the back camera.
-3. Capture a fresh photo.
-4. Send the photo for face detection (see **Face Verification** below).
-5. If no face is detected, show the reason and let the user retake — repeat from step 3.
-6. Once a face is detected, save the local URI into `AttendanceFlowContext`.
-7. Navigate to the preview screen.
+3. Capture a fresh image.
+4. Send the image to the face-detection service.
+5. If no face is detected, show the failure reason.
+6. Allow the user to retake the photo.
+7. Once a face is detected, save the local URI.
+8. Navigate to the preview screen.
 
 ---
 
 # Face Verification
 
-Face checking on the captured attendance photo happens in two phases. Only the first is implemented today.
+Face checking currently has two planned phases.
 
-## Phase 1 — Face Detection (Implemented)
+## Phase 1 — Face Detection
 
-Before a captured photo is accepted, [`app/(sales)/attendance/camera.tsx`](app/%28sales%29/attendance/camera.tsx) confirms the photo actually contains a face. This is a detection check only — it does not confirm *whose* face it is.
+**Implemented**
 
-The detection call is made from:
+The current implementation checks whether the captured attendance photo contains a face.
+
+This is **face detection**, not face identification.
+
+The application service is:
 
 ```text
 src/services/faceDetectionService.ts
 ```
 
-which sends the photo to a small standalone service:
+The standalone Python service is:
 
 ```text
 face-service/app.py
 ```
 
-`face-service` is a separate Python process (FastAPI + DeepFace/RetinaFace) — it is not part of the Expo app and does not get bundled into the mobile build. It exists because DeepFace is a Python/TensorFlow library and cannot run inside React Native.
+The face service uses:
 
-### What to Do — Steps
+```text
+FastAPI
+DeepFace
+RetinaFace
+```
 
-1. Install and run the detection service:
+It runs separately from the Expo application because the Python face-processing stack is not bundled into the React Native application.
 
-   ```bash
-   cd face-service
-   pip install -r requirements.txt
-   uvicorn app:app --reload --host 0.0.0.0 --port 8000
-   ```
+---
 
-2. Point the app at it by setting, in `.env`:
+## Running the Face Service
 
-   ```text
-   EXPO_PUBLIC_FACE_API_URL=http://<your-machine-ip>:8000
-   ```
+From the project root:
 
-   Use your machine's LAN IP rather than `localhost` when testing on a physical device.
+```bash
+cd face-service
+pip install -r requirements.txt
+uvicorn app:app --reload --host 0.0.0.0 --port 8000
+```
 
-3. On the camera screen, capture a photo as normal.
-4. If no face is detected, the app shows the reason and returns control to the shutter button — capture again.
-5. Once a face is detected, the flow proceeds to the preview screen as usual.
+Then configure:
 
-### Important Security Note
+```text
+EXPO_PUBLIC_FACE_API_URL=http://<your-machine-ip>:8000
+```
 
-Like GPS verification, this check exists for user experience — fail fast, let the user retake immediately — not as the final authority. It only answers "is there a face in this photo," not "is attendance valid."
+When testing from a physical phone, use the computer's LAN IP.
 
-## Phase 2 — Face Matching Against the Database (Not Yet Implemented)
+Do not normally use:
 
-Confirming the photo belongs to the *enrolled* sales rep, rather than just containing *a* face, is scaffolded but not wired up.
+```text
+http://localhost:8000
+```
 
-This requires comparing the captured photo against a reference photo stored for that sales rep, which does not exist in the schema yet. The draft is in:
+because `localhost` from the phone refers to the phone itself.
+
+---
+
+## Phase 2 — Face Matching
+
+**Not yet implemented**
+
+The current face detection only answers:
+
+> "Does this image contain a face?"
+
+It does not answer:
+
+> "Does this face belong to the authenticated sales representative?"
+
+A draft migration exists:
 
 ```text
 supabase/migrations/006_face_verification_draft.sql
 ```
 
-everything in that file is commented out — it is a sketch, not an active migration.
+This file is currently a **commented draft** and is not part of the active migration sequence.
 
-### What to Do — Steps (Future Work)
+The intended future architecture includes:
 
-- Connect admin to spin database
-- connect sales and admin (Order) (modify database)
-- implement imagge in attendance preview
-- remove all approve and reject and pending
+```text
+Sales Reference Photo
+        ↓
+Private Storage
+        ↓
+Captured Attendance Photo
+        ↓
+Face Matching Service
+        ↓
+Backend Result
+        ↓
+Attendance Decision
+```
 
-1. Review and uncomment `supabase/migrations/006_face_verification_draft.sql`, adding RLS policies consistent with `002_rls_policies.sql`, then apply it. This adds:
+The future implementation will require:
 
-   * `sales.reference_photo_path` — where each rep's enrolled reference photo lives in Storage.
-   * a private `reference-photos` bucket, mirroring `attendance-photos`.
-   * a `face_verification_attempts` table to log match attempts (distance, threshold, model, result).
+* reference-photo enrollment,
+* a reference photo path for the sales profile,
+* face matching,
+* match attempt logging,
+* backend-authoritative matching.
 
-2. Build an enrollment step (e.g. at sign-up, or an admin-triggered flow) that captures a rep's reference photo once and uploads it to the `reference-photos` bucket, saving the path to `sales.reference_photo_path`.
-
-3. Implement the commented-out `/verify-faces` endpoint in `face-service/app.py`. It is a direct port of `DeepFace.verify(...)` from the original face-matching script this project's detection logic was based on — it fetches the rep's reference photo server-side and compares it against the newly captured photo.
-
-4. Implement the commented-out `verifyFace()` function in `src/services/faceDetectionService.ts` to call that endpoint.
-
-5. Call `verifyFace()` from [`app/(sales)/attendance/preview.tsx`](app/%28sales%29/attendance/preview.tsx), before `submitAttendance()` runs — there is a comment marking the exact spot. Reject or warn before upload, the same "fail fast" shape as Phase 1.
-
-6. Add `FACE_MATCH_SUCCESS` / `FACE_MATCH_FAILED` audit actions (placeholder noted in `src/types/index.ts`) so match attempts show up in the existing audit log alongside `FACE_DETECTED` / `FACE_NOT_DETECTED`.
-
-### Important Security Rule
-
-As with GPS and attendance approval, matching must be authoritative on the backend. The mobile app should never be the one deciding whether a face matches — it only submits the comparison request and displays the server's result.
+The mobile application must not independently decide whether two faces match.
 
 ---
 
@@ -601,67 +806,70 @@ As with GPS and attendance approval, matching must be authoritative on the backe
 
 ## Preview
 
-[`app/(sales)/attendance/preview.tsx`](app/%28sales%29/attendance/preview.tsx) displays the captured image.
+The preview screen is:
 
-This screen is currently scaffolded for the final attendance submission integration.
+```text
+app/(sales)/attendance/preview.tsx
+```
 
-The backend attendance RPC is already available.
+It displays the captured attendance image before the final attendance operation.
+
+The final attendance integration is still being wired into this screen.
 
 ## Result
 
-[`app/(sales)/attendance/result.tsx`](app/%28sales%29/attendance/result.tsx) is the attendance result screen.
+The result screen is:
 
-It is intended to display:
+```text
+app/(sales)/attendance/result.tsx
+```
 
-* approval,
-* rejection,
+It is responsible for presenting the backend attendance result, including information such as:
+
+* approved/rejected state,
 * rejection reason,
 * relevant attendance information.
 
-The final decision must come from the backend.
+The backend remains the authority for the final decision.
 
 ---
 
 # Attendance Service
 
-The backend bridge is:
+The application-facing attendance service is:
 
 ```text
 src/services/attendanceService.ts
 ```
 
-It:
+Its responsibilities include:
 
-1. Reads the signed-in user from Supabase Auth.
-2. Uploads the captured image to the private `attendance-photos` bucket.
-3. Builds a photo path using:
+1. Reading the authenticated Supabase user.
+2. Uploading the captured photo.
+3. Using the private `attendance-photos` storage bucket.
+4. Creating a photo path based on the sales ID, store ID, and UUID.
+5. Calling the backend attendance RPC.
+6. Returning the structured result to the application.
 
-   * sales ID,
-   * store ID,
-   * UUID.
-4. Calls the:
+The main RPC is:
 
 ```text
 submit_attendance
 ```
 
-RPC.
-5. Returns the structured backend result.
+The service also provides access to attendance history and attendance photo URLs.
 
-### Backend Authority
-
-The application never decides final attendance approval itself.
-
-The database function is responsible for the authoritative decision.
-
-The service also exposes:
+The preferred architecture is:
 
 ```text
-getMyAttendanceHistory()
-getAttendancePhotoUrl()
+Attendance Screen
+       ↓
+attendanceService
+       ↓
+submit_attendance RPC
+       ↓
+Supabase
 ```
-
-for history and photo retrieval.
 
 ---
 
@@ -675,67 +883,83 @@ app/(sales)/spin/
 
 ## Spin Screen
 
-[`app/(sales)/spin/index.tsx`](app/%28sales%29/spin/index.tsx) is the wheel screen.
+The wheel screen is:
 
-The reward is **not randomized inside React Native**.
+```text
+app/(sales)/spin/index.tsx
+```
 
-The server controls:
+The application does **not** decide the reward locally.
+
+The backend controls:
 
 * spin eligibility,
 * duplicate prevention,
 * reward selection,
 * reward probability,
-* final result.
+* final reward.
+
+---
 
 ## Result Screen
 
-[`app/(sales)/spin/result.tsx`](app/%28sales%29/spin/result.tsx) displays the reward result.
+The result screen is:
 
-The current screen is still a placeholder for the final backend response UX.
+```text
+app/(sales)/spin/result.tsx
+```
+
+It is responsible for displaying the reward returned by the backend.
+
+The final result UX is still being completed.
 
 ---
 
 # Spin Service
 
-The backend-facing service is:
+The spin service is:
 
 ```text
 src/services/spinService.ts
 ```
 
-It calls:
+The main backend operation is:
 
 ```text
 request_spin
 ```
 
-and returns:
+The service handles the application-facing request and returns information such as:
 
 * spin ID,
 * spin status,
-* reward data when present,
-* rejection reason when the spin is denied.
+* reward data,
+* rejection reason.
 
-### Why Reward Selection Is Server-Side
+---
 
-The application must not perform reward randomization client-side.
+## Why Reward Selection Is Server-Side
 
-The correct architecture is:
+Reward randomization must not happen in React Native.
+
+The correct flow is:
 
 ```text
 Mobile App
     ↓
-request_spin RPC
+request_spin
     ↓
-Validate eligibility
+Authenticate User
     ↓
-Check daily uniqueness
+Validate Attendance
     ↓
-Weighted reward selection
+Check Daily Uniqueness
     ↓
-Create spin
+Weighted Reward Selection
     ↓
-Return reward
+Create Spin Record
+    ↓
+Return Result
 ```
 
 This prevents the client from manipulating the reward outcome.
@@ -744,33 +968,25 @@ This prevents the client from manipulating the reward outcome.
 
 # History Screens
 
-[`app/(sales)/history.tsx`](app/%28sales%29/history.tsx) is currently scaffolded.
-
-The required data-access functions already exist:
+The sales history screen is:
 
 ```text
-getMyAttendanceHistory()
+app/(sales)/history.tsx
 ```
 
-in:
+The screen is currently scaffolded.
+
+The required service methods already exist:
 
 ```text
 attendanceService.ts
-```
+    └── getMyAttendanceHistory()
 
-and:
-
-```text
-getMySpinHistory()
-```
-
-in:
-
-```text
 spinService.ts
+    └── getMySpinHistory()
 ```
 
-When the history screen is completed, it should use these service functions rather than querying the database directly from UI code.
+When completing the history UI, route components should use these services rather than making direct database queries.
 
 ---
 
@@ -784,13 +1000,21 @@ app/admin/
 
 ## Admin Layout
 
-[`app/admin/_layout.tsx`](app/admin/_layout.tsx) defines the admin navigation stack.
+```text
+app/admin/_layout.tsx
+```
+
+defines the admin navigation stack.
 
 ## Admin Dashboard
 
-[`app/admin/index.tsx`](app/admin/index.tsx) is the admin dashboard.
+```text
+app/admin/index.tsx
+```
 
-The current admin screens are scaffolds for:
+is the admin entry screen.
+
+The current admin routes are scaffolds for functionality such as:
 
 * attendance monitoring,
 * spin monitoring,
@@ -803,14 +1027,15 @@ The intended access model is:
 ```text
 Sales User
     ↓
+Own profile
 Own attendance
 Own spins
-Own profile
 Own relevant data
+
 
 Admin
     ↓
-All authorized operational data
+Authorized operational data
 Attendance monitoring
 Spin monitoring
 Store management
@@ -818,11 +1043,13 @@ Sales management
 Reward management
 ```
 
+Admin authorization must ultimately be enforced through the backend/database security layer, not only by hiding frontend routes.
+
 ---
 
 # Data Model
 
-The database schema is defined in:
+The database schema is defined through:
 
 ```text
 supabase/migrations/
@@ -832,7 +1059,9 @@ supabase/migrations/
 
 ### `sales`
 
-Stores the application sales profile linked to:
+Stores the application's sales profile.
+
+The profile is associated with:
 
 ```text
 auth.users.id
@@ -840,7 +1069,7 @@ auth.users.id
 
 ### `stores`
 
-Stores:
+Stores information such as:
 
 * store name,
 * store code,
@@ -856,10 +1085,10 @@ Stores:
 
 * sales user,
 * store,
-* GPS evidence,
+* GPS coordinates,
 * GPS accuracy,
-* photo path,
-* approval state,
+* attendance photo path,
+* attendance status,
 * rejection reason,
 * timestamps.
 
@@ -883,16 +1112,16 @@ Stores:
 
 ### `devices`
 
-Stores device identifiers associated with users.
+Stores device identifiers associated with application users.
 
 ### `audit_logs`
 
-Stores important application events, including:
+Stores important application events such as:
 
 * login,
-* attendance,
+* attendance actions,
 * GPS rejection,
-* camera capture,
+* camera actions,
 * spin actions,
 * other security/business events.
 
@@ -900,31 +1129,31 @@ Stores important application events, including:
 
 # Important Database Constraints
 
-The backend enforces critical business rules.
+The database is responsible for enforcing important business rules.
 
 ## Attendance
 
-`attendance.status` is controlled by backend logic.
+Attendance status is controlled by backend logic.
 
 The frontend cannot independently approve attendance.
 
 ## One Spin Per Store Per Day
 
-The `spins` table has a uniqueness constraint on:
+The `spins` table enforces uniqueness for:
 
 ```text
 (sales_id, store_id, spin_date)
 ```
 
-This prevents a user from obtaining multiple spins for the same store on the same day.
+This prevents a sales user from obtaining multiple spins for the same store on the same day.
 
 ## Store Radius
 
-`stores.radius_meters` is constrained to a valid range.
+Store radius is stored with the store configuration and constrained by the database.
 
 ## Reward Probability
 
-Reward probability is stored server-side and is used for weighted reward selection.
+Reward probability is stored server-side and used for weighted reward selection.
 
 ---
 
@@ -936,19 +1165,19 @@ RLS policies are defined in:
 supabase/migrations/002_rls_policies.sql
 ```
 
-Row Level Security is enabled on the application tables.
+The application tables use Row Level Security.
 
 The fundamental rule is:
 
-> Users can only access rows they are authorized to access.
+> Users can only access data they are authorized to access.
 
-Administrators receive elevated access through:
+Administrative access is determined through:
 
 ```text
 is_admin()
 ```
 
-This keeps access control in the database rather than relying exclusively on frontend navigation.
+This is important because frontend route protection alone is not sufficient security.
 
 ---
 
@@ -960,23 +1189,23 @@ Storage configuration is defined in:
 supabase/migrations/003_storage_and_functions.sql
 ```
 
-The application creates a private bucket:
+Attendance photos are stored in the private:
 
 ```text
 attendance-photos
 ```
 
-Attendance photos are not stored in a public bucket.
+bucket.
 
-Users can upload their own attendance photos according to the configured storage policies.
+Attendance photos should not be exposed through a public bucket.
 
-The application resolves storage objects through the attendance service when access is required.
+The application uses the attendance service to resolve photo access when required.
 
 ---
 
 # Backend RPC Functions
 
-The main backend business functions are:
+The main backend functions are:
 
 ```text
 submit_attendance
@@ -990,19 +1219,21 @@ haversine_distance_meters
 
 ## `submit_attendance`
 
-This function:
+This function is responsible for the authoritative attendance operation.
 
-1. Checks that the user is authenticated.
+It:
+
+1. Checks authentication.
 2. Loads the selected store.
-3. Computes the distance from the store.
-4. Rejects submissions outside the store radius.
-5. Rejects submissions with poor GPS accuracy.
-6. Rejects submissions without a photo path.
-7. Inserts the attendance row.
-8. Writes an audit log.
-9. Returns the result to the application.
+3. Calculates distance from the store.
+4. Checks the store radius.
+5. Checks GPS accuracy.
+6. Requires a valid photo path.
+7. Creates the attendance record.
+8. Writes an audit event.
+9. Returns the backend result.
 
-The backend is authoritative for the attendance decision.
+The mobile application does not determine final attendance approval.
 
 ---
 
@@ -1010,83 +1241,58 @@ The backend is authoritative for the attendance decision.
 
 This function:
 
-1. Checks that the user is authenticated.
-2. Verifies the attendance belongs to the user and store.
-3. Requires the attendance to be approved.
-4. Enforces the daily uniqueness constraint.
-5. Selects a reward using weighted random logic.
-6. Records the selected reward.
-7. Writes an audit log.
-8. Returns the result to the application.
+1. Checks authentication.
+2. Verifies the attendance belongs to the authenticated user.
+3. Verifies the attendance belongs to the requested store.
+4. Requires approved attendance.
+5. Enforces the daily spin uniqueness rule.
+6. Performs weighted reward selection.
+7. Creates the spin record.
+8. Writes an audit event.
+9. Returns the result.
 
 ---
 
 ## `signup_sales_user`
 
-This function is the secure sign-up path.
+This is the backend registration path.
 
-It:
-
-1. Validates username, email, and password.
-2. Checks for duplicate username.
-3. Checks for duplicate email.
-4. Hashes the password with bcrypt.
-5. Creates the `auth.users` row.
-6. Creates the matching `auth.identities` row.
-7. Triggers sales-profile creation.
+It validates account information and creates the authentication and sales-profile records required by the application.
 
 ---
 
 # Signup Trigger
 
-The signup trigger is defined through the database migrations:
+The signup/profile synchronization logic is defined in the database migrations.
+
+The database trigger:
 
 ```text
-supabase/migrations/001_initial_schema.sql
-supabase/migrations/004_username_signup.sql
+handle_new_user()
 ```
 
-The `handle_new_user()` trigger keeps the authentication user and sales profile synchronized.
+keeps the authentication user and sales profile synchronized.
 
-When a new authentication user is created, the trigger creates the corresponding:
+The relevant migration files include:
+
+```text
+001_initial_schema.sql
+004_username_signup.sql
+```
+
+When an authentication user is created, the corresponding:
 
 ```text
 public.sales
 ```
 
-row.
-
----
-
-# Important Code Map
-
-| File                                                | Responsibility                                     |
-| --------------------------------------------------- | -------------------------------------------------- |
-| `app/_layout.tsx`                                   | App bootstrap, fonts, providers, and root stack    |
-| `app/index.tsx`                                     | Redirects users to login, sales, or admin          |
-| `app/auth/login.tsx`                                | Login form and validation                          |
-| `app/auth/signup.tsx`                               | Account creation form and validation               |
-| `src/features/auth/AuthContext.tsx`                 | Session, profile, sign-in, sign-up, sign-out       |
-| `src/features/auth/useAuth.ts`                      | Hook for accessing auth context                    |
-| `src/features/attendance/AttendanceFlowContext.tsx` | Shared store/photo state                           |
-| `src/features/gps/useGpsVerification.ts`            | Location permission and radius check               |
-| `src/services/storeService.ts`                      | Store search and lookup                            |
-| `src/services/attendanceService.ts`                 | Attendance upload and RPC submission               |
-| `src/services/spinService.ts`                       | Spin RPC calls and spin history                    |
-| `src/services/auditService.ts`                      | Audit event logging                                |
-| `src/services/deviceService.ts`                     | Device registration and secure device ID           |
-| `src/services/faceDetectionService.ts`              | Face detection call + face-matching stub (future)  |
-| `src/lib/supabase.ts`                               | Supabase client setup, auth storage, fetch wrapper |
-| `src/lib/config.ts`                                 | App-wide Supabase and face-service configuration   |
-| `src/types/database.ts`                             | Typed Supabase database contract                   |
-| `supabase/migrations/*.sql`                         | Schema, RLS, storage, triggers, RPC functions      |
-| `face-service/app.py`                               | Standalone face detection service (+ matching stub)|
+profile is created.
 
 ---
 
 # Shared UI Components
 
-Presentation primitives are located in:
+Shared presentation components are located in:
 
 ```text
 src/components/
@@ -1094,34 +1300,66 @@ src/components/
 
 Current shared components include:
 
-* `ScreenContainer`
+```text
+ScreenContainer
+PrimaryButton
+FormInput
+```
 
-  * screen padding
-  * title
-  * subtitle
+These components provide reusable presentation behavior such as:
 
-* `PrimaryButton`
+* screen spacing,
+* titles and subtitles,
+* button variants,
+* loading states,
+* consistent form input styling.
 
-  * button variants
-  * loading state
+The goal is to keep route screens focused on application logic and user interaction.
 
-* `FormInput`
+---
 
-  * consistent text input styling
+# Services
 
-These components are intentionally small so route screens can focus on application flow rather than layout boilerplate.
+The service layer is located in:
+
+```text
+src/services/
+```
+
+Current services include:
+
+```text
+auditService.ts
+attendanceService.ts
+deviceService.ts
+faceDetectionService.ts
+spinService.ts
+storeService.ts
+```
+
+The preferred architecture is:
+
+```text
+UI
+ ↓
+Service
+ ↓
+Supabase / RPC / External Service
+```
+
+This keeps database access and backend communication out of route components wherever possible.
 
 ---
 
 # Utilities
 
-Validation helpers are located in:
+Validation utilities are located in:
 
 ```text
 src/utils/validation.ts
 ```
 
-They include:
+They handle functionality such as:
 
 * email validation,
 * GPS accuracy validation,
@@ -1133,74 +1371,72 @@ Distance calculations are located in:
 src/utils/distance.ts
 ```
 
-The distance utility implements the Haversine formula and returns distance in meters.
+The distance utility implements the Haversine formula and returns distances in meters.
 
 ---
 
 # Configuration
 
-Supabase configuration is currently handled through:
+Application configuration is handled through:
 
 ```text
 src/lib/config.ts
 src/lib/supabase.ts
 ```
 
-Face detection service configuration is also handled through `src/lib/config.ts`, via:
+The face-detection service URL uses:
 
 ```text
 EXPO_PUBLIC_FACE_API_URL
 ```
 
-See **Face Verification** above for how to run and point the app at that service.
-
-Before deploying to another environment, verify:
+Before using the application in another environment, verify:
 
 * Supabase project URL,
 * Supabase public/anonymous key,
 * face-service URL,
-* environment-specific configuration,
+* environment configuration,
 * database migrations,
-* storage configuration,
+* Storage configuration,
 * RLS policies.
 
-Do not expose Supabase service-role credentials in the mobile application.
+**Never expose Supabase service-role credentials in the mobile application.**
 
 ---
 
 # Version Management
 
-The direct dependency versions are defined in:
+Direct dependency versions are defined in:
 
 ```text
 package.json
 ```
 
-The exact resolved dependency tree is recorded in:
+The exact dependency tree is recorded in:
 
 ```text
 package-lock.json
 ```
 
-To install the dependency tree from the lockfile:
+Install exactly from the lockfile:
 
 ```bash
 npm ci
 ```
 
-For normal dependency installation:
+Normal dependency installation:
 
 ```bash
 npm install
 ```
 
-To inspect installed top-level packages:
+Inspect installed top-level packages:
 
 ```bash
 npm list --depth=0
 ```
 
-To check the Expo project:
+Check the Expo project:
 
 ```bash
 npx expo-doctor
@@ -1256,34 +1492,45 @@ React Native Safe Area Context
 ## Implemented and Wired
 
 * Auth bootstrap
-* Role-based redirection
-* Sign-up flow backed by a Supabase RPC
-* Sign-in flow backed by the Supabase Auth token endpoint
-* Store search and selection
-* GPS radius verification prototype
-* Camera-only photo capture
-* Face detection retry gate (capture is rejected and retried until a face is found)
+* Role-based routing
+* Sales sign-up flow
+* Sales sign-in flow
+* Sales profile loading
+* Store search
+* Store selection
+* GPS radius verification
+* Haversine distance calculation
+* Camera-only attendance capture
+* Face detection retry gate
 * Device registration
 * Audit logging
-* Database schema
+* Supabase database schema
 * Row Level Security
 * Private attendance photo storage
-* Backend RPC functions
+* Attendance RPC
+* Spin RPC
 * Attendance service
 * Spin service
+* Store service
+* Face detection service
 * Backend-controlled reward selection
+* One-spin-per-store-per-day database constraint
 
 ## Scaffolded / Not Yet Fully Wired
 
-* Final attendance submission screen wiring
+* Final attendance submission UI
+* Final attendance result UX
 * Spin wheel animation
 * Final spin result UX
-* Attendance history screen
-* Spin history screen
+* Attendance history UI
+* Spin history UI
 * Admin CRUD screens
 * Admin monitoring screens
-* Face matching against a sales rep's enrolled reference photo (database comparison)
-* Reference photo enrollment flow
+* Face matching against a sales representative's reference photo
+* Reference photo enrollment
+* Final production face-verification workflow
+
+The face-matching migration is currently a draft and should not be treated as an active migration.
 
 ---
 
@@ -1292,7 +1539,7 @@ React Native Safe Area Context
 A typical development workflow is:
 
 ```text
-1. Start the Expo development server
+1. Start Expo
         ↓
 2. Sign in or create a sales account
         ↓
@@ -1302,17 +1549,19 @@ A typical development workflow is:
         ↓
 5. Capture attendance photo
         ↓
-6. Submit attendance
+6. Face detection
         ↓
-7. Backend validates attendance
+7. Submit attendance
         ↓
-8. Request spin
+8. Backend validates attendance
         ↓
-9. Backend validates eligibility
+9. Request spin
         ↓
-10. Backend selects reward
+10. Backend validates eligibility
         ↓
-11. Display reward
+11. Backend selects reward
+        ↓
+12. Display reward
 ```
 
 ---
@@ -1326,7 +1575,7 @@ The project deliberately separates UI responsibilities from business-rule enforc
 The frontend handles:
 
 * navigation,
-* form input,
+* forms,
 * local validation,
 * camera interaction,
 * GPS acquisition,
@@ -1336,7 +1585,7 @@ The frontend handles:
 
 ## Backend Responsibilities
 
-The backend handles:
+Supabase/database logic handles:
 
 * authentication validation,
 * authorization,
@@ -1349,15 +1598,15 @@ The backend handles:
 * audit logging,
 * database integrity.
 
-The frontend should never be treated as a trusted source for these business decisions.
+The frontend should never be considered a trusted source for these decisions.
 
 ---
 
 # Why the Code Is Structured This Way
 
-The application separates three major concerns:
+The application separates three major concerns.
 
-### 1. Route Screens
+## 1. Route Screens
 
 Route screens manage:
 
@@ -1366,9 +1615,9 @@ Route screens manage:
 * user interaction,
 * presentation.
 
-### 2. Contexts
+## 2. Contexts
 
-Contexts manage transient workflow state across screens.
+Contexts manage temporary state shared between screens.
 
 Examples:
 
@@ -1377,99 +1626,110 @@ AuthContext
 AttendanceFlowContext
 ```
 
-### 3. Services and Database Functions
+## 3. Services and Database Functions
 
 Services provide the application-facing API layer.
 
-Database functions enforce business rules.
+Database functions enforce authoritative business rules.
 
-This separation makes the system easier to reason about because the UI does not own the logic that decides:
+This separation prevents UI code from becoming responsible for:
 
 * attendance approval,
 * reward selection,
 * duplicate prevention,
-* access control.
+* authorization,
+* backend validation.
 
 ---
 
 # Architecture Overview
 
 ```text
-                    ┌─────────────────────┐
-                    │    Expo / React     │
-                    │   Native Frontend   │
-                    └──────────┬──────────┘
-                               │
-                               ▼
-                    ┌─────────────────────┐
-                    │      Services       │
-                    │                     │
-                    │ Auth                 │
-                    │ Attendance          │
-                    │ Store                │
-                    │ Spin                 │
-                    │ Audit               │
-                    │ Device              │
-                    └──────────┬──────────┘
-                               │
-                               ▼
-                    ┌─────────────────────┐
-                    │      Supabase       │
-                    │                     │
-                    │ Auth                │
-                    │ PostgreSQL          │
-                    │ Storage             │
-                    │ RPC                 │
-                    │ RLS                 │
-                    └──────────┬──────────┘
-                               │
-                               ▼
-                    ┌─────────────────────┐
-                    │ Business Rules      │
-                    │                     │
-                    │ GPS validation      │
-                    │ Attendance approval │
-                    │ Spin eligibility    │
-                    │ Reward selection    │
-                    │ Duplicate prevention│
-                    │ Audit logging       │
-                    └─────────────────────┘
+                 ┌─────────────────────┐
+                 │   Expo / React      │
+                 │  Native Frontend    │
+                 └──────────┬──────────┘
+                            │
+                            ▼
+                 ┌─────────────────────┐
+                 │      Services       │
+                 │                     │
+                 │ Auth                │
+                 │ Attendance          │
+                 │ Store               │
+                 │ Spin                │
+                 │ Audit               │
+                 │ Device              │
+                 │ Face Detection      │
+                 └──────────┬──────────┘
+                            │
+                            ▼
+                 ┌─────────────────────┐
+                 │      Supabase       │
+                 │                     │
+                 │ Auth                │
+                 │ PostgreSQL          │
+                 │ Storage             │
+                 │ RPC                 │
+                 │ RLS                 │
+                 └──────────┬──────────┘
+                            │
+                            ▼
+                 ┌─────────────────────┐
+                 │    Business Rules   │
+                 │                     │
+                 │ GPS validation      │
+                 │ Attendance approval │
+                 │ Spin eligibility    │
+                 │ Reward selection    │
+                 │ Duplicate prevention│
+                 │ Audit logging       │
+                 └─────────────────────┘
+
+                 Separate Face Service
+                         │
+                         ▼
+                 ┌─────────────────────┐
+                 │     FastAPI         │
+                 │     DeepFace        │
+                 │     RetinaFace      │
+                 └─────────────────────┘
 ```
 
 ---
 
 # GPS Prototype (Development)
 
-From the login screen, use:
+The login screen contains:
 
 ```text
 GPS Prototype (dev)
 ```
 
-to test store-radius verification without going through the normal full attendance submission path.
+This allows developers to test store-radius verification independently from the complete attendance workflow.
 
-This is useful for verifying:
+It can be used to verify:
 
 * location permissions,
 * current coordinates,
 * GPS accuracy,
 * store coordinates,
-* radius calculation,
+* radius configuration,
 * Haversine distance behavior.
 
-The GPS prototype should not be considered the authoritative attendance approval mechanism.
+The GPS prototype is **not** the authoritative attendance approval mechanism.
 
 ---
 
 # Database Migration Order
 
-The database migrations are located in:
+Database migrations are located in:
 
 ```text
 supabase/migrations/
 ```
 
-The current migration structure includes:
+The active migration sequence is:
 
 ```text
 001_initial_schema.sql
@@ -1478,17 +1738,23 @@ The current migration structure includes:
 004_username_signup.sql
 ```
 
-When setting up a new Supabase environment, ensure the migrations are applied in order.
+Apply the migrations in order when setting up a new Supabase environment.
 
-`006_face_verification_draft.sql` also exists in this folder but is **not** part of the applied migration order — every statement in it is commented out. It is a draft schema for future face-matching support (see **Face Verification** above) and should be reviewed and uncommented deliberately, not run automatically.
+The following file also exists:
+
+```text
+006_face_verification_draft.sql
+```
+
+This is a commented draft for future face-matching functionality.
+
+It is **not part of the active migration sequence** and should not be applied automatically.
 
 ---
 
 # Key Business Rules
 
-The most important rules currently implemented by the backend are:
-
-### Attendance
+## Attendance
 
 ```text
 Authenticated user
@@ -1501,10 +1767,14 @@ Acceptable GPS accuracy
         +
 Valid attendance photo
         =
-Attendance eligible for approval
+Attendance eligible for backend approval
 ```
 
-### Spin
+The final decision belongs to the backend.
+
+---
+
+## Spin
 
 ```text
 Authenticated user
@@ -1520,7 +1790,9 @@ No previous spin for same store/day
 Spin eligible
 ```
 
-### Reward
+---
+
+## Reward
 
 ```text
 Server-side reward configuration
@@ -1530,13 +1802,15 @@ Server-side weighted selection
 Authoritative reward
 ```
 
+The mobile application must never generate the authoritative reward.
+
 ---
 
 # Important Development Notes
 
 ## Do Not Move Business Logic Into the UI
 
-Avoid implementing authoritative versions of these rules in React Native:
+Do not implement authoritative versions of these rules inside React Native:
 
 * reward randomization,
 * attendance approval,
@@ -1544,7 +1818,9 @@ Avoid implementing authoritative versions of these rules in React Native:
 * admin authorization,
 * GPS approval.
 
-The UI may perform preliminary checks for user experience, but the backend must remain authoritative.
+The frontend may perform preliminary checks for better UX, but the backend remains authoritative.
+
+---
 
 ## Prefer Services Over Direct Database Calls
 
@@ -1556,23 +1832,29 @@ src/services/
 
 instead of calling Supabase directly.
 
-This keeps:
+Preferred architecture:
 
 ```text
-UI → Service → Supabase/RPC
+UI
+ ↓
+Service
+ ↓
+Supabase / RPC
 ```
 
-as the preferred architecture.
+This makes the application easier to maintain and keeps backend communication consistent.
+
+---
 
 ## Keep Database Types Updated
 
-When the Supabase schema changes, keep:
+When the Supabase schema changes, update:
 
 ```text
 src/types/database.ts
 ```
 
-synchronized with the database contract.
+so the application's TypeScript database contract remains synchronized with the database.
 
 ---
 
@@ -1611,6 +1893,7 @@ sales-spin-app-v2/
 │
 ├── src/
 │   ├── components/
+│   │
 │   ├── features/
 │   │   ├── auth/
 │   │   ├── attendance/
@@ -1641,7 +1924,7 @@ sales-spin-app-v2/
 │       ├── 002_rls_policies.sql
 │       ├── 003_storage_and_functions.sql
 │       ├── 004_username_signup.sql
-│       └── 006_face_verification_draft.sql   (draft, not applied — see Face Verification)
+│       └── 006_face_verification_draft.sql
 │
 ├── face-service/
 │   ├── app.py
@@ -1657,21 +1940,42 @@ sales-spin-app-v2/
 
 # Final Architecture Principle
 
-The project follows a simple rule:
+The project follows one central rule:
 
 > **The mobile application coordinates the workflow; Supabase enforces the business rules.**
 
-The frontend is responsible for collecting evidence and presenting results.
+The frontend is responsible for:
+
+* collecting evidence,
+* interacting with the device,
+* guiding the user,
+* presenting results.
 
 The backend is responsible for determining whether an action is valid.
 
-This is especially important for:
+This separation is especially important for:
 
 * GPS attendance,
 * attendance approval,
 * reward selection,
-* one-spin-per-day enforcement,
+* one-spin-per-store-per-day enforcement,
 * authorization,
 * auditability.
 
-That separation should be preserved as new features are implemented.
+Any future feature should preserve this separation.
+
+When adding new functionality, prefer:
+
+```text
+Screen
+  ↓
+Feature / Context
+  ↓
+Service
+  ↓
+Supabase RPC / Database
+```
+
+rather than putting authoritative business logic directly inside the React Native screens.
+
+[1]: https://github.com/philip696/sales_wheel/blob/backend-api/README.md "sales_wheel/README.md at backend-api · philip696/sales_wheel · GitHub"
