@@ -24,7 +24,7 @@ import {
     View,
 } from 'react-native';
 
-const STORE_RADIUS_METERS = 50;
+const STORE_RADIUS_METERS = 5000;
 
 export default function AddStoreScreen() {
   const [form, setForm] =
