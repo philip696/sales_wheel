@@ -24,14 +24,14 @@ export default function SpinResultScreen() {
     >
       <View style={styles.container}>
         {/* ================================================= */}
-        {/* DEMO BADGE */}
+        {/* SUCCESS BADGE */}
         {/* ================================================= */}
 
-        <View style={styles.demoBadge}>
-          <View style={styles.demoDot} />
+        <View style={styles.successBadge}>
+          <View style={styles.successDot} />
 
-          <Text style={styles.demoBadgeText}>
-            DEMO REWARD
+          <Text style={styles.successBadgeText}>
+            REWARD UNLOCKED
           </Text>
         </View>
 
@@ -40,7 +40,9 @@ export default function SpinResultScreen() {
         {/* ================================================= */}
 
         <View style={styles.card}>
+          {/* ================================================= */}
           {/* CELEBRATION */}
+          {/* ================================================= */}
 
           <View style={styles.celebrationCircle}>
             <Text style={styles.emoji}>
@@ -52,13 +54,12 @@ export default function SpinResultScreen() {
             Congratulations!
           </Text>
 
-          <Text style={styles.subtitle}>
-            You've unlocked a reward from
-            today's store visit.
+          <Text style={styles.subtitleText}>
+            You won a reward from this store visit.
           </Text>
 
           {/* ================================================= */}
-          {/* REWARD */}
+          {/* WHAT THEY WON */}
           {/* ================================================= */}
 
           {reward ? (
@@ -67,22 +68,46 @@ export default function SpinResultScreen() {
                 YOU WON
               </Text>
 
+              {/* MAIN REWARD NAME */}
+
               <Text style={styles.rewardName}>
                 {reward.name}
               </Text>
 
+              {/* REWARD VALUE */}
+
               {reward.value ? (
                 <View style={styles.rewardValueBox}>
+                  <Text style={styles.rewardValueLabel}>
+                    YOUR REWARD
+                  </Text>
+
                   <Text style={styles.rewardValue}>
                     {reward.value}
                   </Text>
                 </View>
               ) : null}
+
+              {/* EXPLANATION */}
+
+              <Text style={styles.rewardDescription}>
+                This is the reward you received from
+                today's Spin Wheel.
+              </Text>
             </View>
           ) : (
             <View style={styles.noRewardBox}>
+              <Text style={styles.noRewardIcon}>
+                ⚠️
+              </Text>
+
+              <Text style={styles.noRewardTitle}>
+                Reward Information Missing
+              </Text>
+
               <Text style={styles.noReward}>
-                No reward information was returned.
+                No reward information was returned
+                from the Spin Wheel.
               </Text>
             </View>
           )}
@@ -94,7 +119,9 @@ export default function SpinResultScreen() {
           {selectedStore ? (
             <View style={styles.infoBox}>
               <View style={styles.infoIcon}>
-                <Text>📍</Text>
+                <Text style={styles.infoEmoji}>
+                  📍
+                </Text>
               </View>
 
               <View style={styles.infoContent}>
@@ -126,19 +153,20 @@ export default function SpinResultScreen() {
               </Text>
 
               <Text style={styles.statusDescription}>
-                This visit's reward has been completed.
+                Your reward has been recorded for
+                this store visit.
               </Text>
             </View>
           </View>
 
           {/* ================================================= */}
-          {/* SPIN ID */}
+          {/* SPIN REFERENCE */}
           {/* ================================================= */}
 
           {lastSpin?.spinId ? (
             <View style={styles.spinIdBox}>
               <Text style={styles.spinIdLabel}>
-                DEMO SPIN REFERENCE
+                SPIN REFERENCE
               </Text>
 
               <Text
@@ -176,8 +204,8 @@ export default function SpinResultScreen() {
         {/* ================================================= */}
 
         <Text style={styles.footer}>
-          Reward selection is currently running in
-          demo mode.
+          Your reward was selected from the active
+          rewards configured by the administrator.
         </Text>
       </View>
     </ScreenContainer>
@@ -185,6 +213,12 @@ export default function SpinResultScreen() {
 }
 
 const styles = StyleSheet.create({
+  /*
+   * =========================================================
+   * CONTAINER
+   * =========================================================
+   */
+
   container: {
     flex: 1,
     alignItems: 'center',
@@ -193,32 +227,32 @@ const styles = StyleSheet.create({
 
   /*
    * =========================================================
-   * DEMO BADGE
+   * SUCCESS BADGE
    * =========================================================
    */
 
-  demoBadge: {
+  successBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#fff7ed',
+    backgroundColor: '#ecfdf5',
     borderWidth: 1,
-    borderColor: '#fed7aa',
+    borderColor: '#bbf7d0',
     borderRadius: 999,
     paddingHorizontal: 12,
     paddingVertical: 6,
     marginBottom: 12,
   },
 
-  demoDot: {
+  successDot: {
     width: 7,
     height: 7,
     borderRadius: 4,
-    backgroundColor: '#f97316',
+    backgroundColor: '#16a34a',
     marginRight: 6,
   },
 
-  demoBadgeText: {
-    color: '#c2410c',
+  successBadgeText: {
+    color: '#15803d',
     fontSize: 9,
     fontWeight: '900',
     letterSpacing: 1,
@@ -256,9 +290,9 @@ const styles = StyleSheet.create({
    */
 
   celebrationCircle: {
-    width: 82,
-    height: 82,
-    borderRadius: 41,
+    width: 88,
+    height: 88,
+    borderRadius: 44,
     backgroundColor: '#ecfdf5',
     borderWidth: 1,
     borderColor: '#bbf7d0',
@@ -268,86 +302,140 @@ const styles = StyleSheet.create({
   },
 
   emoji: {
-    fontSize: 42,
+    fontSize: 46,
   },
 
   title: {
-    fontSize: 26,
+    fontSize: 27,
     fontWeight: '900',
     color: '#0f172a',
     textAlign: 'center',
     marginBottom: 6,
   },
 
-  subtitle: {
-    fontSize: 12,
+  subtitleText: {
+    fontSize: 13,
     color: '#64748b',
-    lineHeight: 18,
+    lineHeight: 19,
     textAlign: 'center',
     marginBottom: 22,
   },
 
   /*
    * =========================================================
-   * REWARD
+   * REWARD SECTION
    * =========================================================
    */
 
   rewardSection: {
     width: '100%',
     alignItems: 'center',
-    backgroundColor: '#f8fafc',
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    paddingVertical: 18,
-    paddingHorizontal: 14,
+    backgroundColor: '#f0fdf4',
+    borderRadius: 20,
+    borderWidth: 2,
+    borderColor: '#86efac',
+    paddingVertical: 22,
+    paddingHorizontal: 16,
     marginBottom: 14,
   },
 
   rewardLabel: {
-    color: '#94a3b8',
-    fontSize: 9,
+    color: '#15803d',
+    fontSize: 10,
     fontWeight: '900',
-    letterSpacing: 1.5,
-    marginBottom: 7,
+    letterSpacing: 2,
+    marginBottom: 8,
   },
+
+  /*
+   * =========================================================
+   * MAIN WIN
+   * =========================================================
+   */
 
   rewardName: {
-    color: '#16a34a',
-    fontSize: 30,
+    color: '#166534',
+    fontSize: 32,
     fontWeight: '900',
     textAlign: 'center',
-    marginBottom: 10,
+    marginBottom: 14,
   },
 
+  /*
+   * =========================================================
+   * VALUE
+   * =========================================================
+   */
+
   rewardValueBox: {
+    width: '100%',
     backgroundColor: '#ffffff',
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 7,
+    borderRadius: 13,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     borderWidth: 1,
-    borderColor: '#dcfce7',
+    borderColor: '#bbf7d0',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+
+  rewardValueLabel: {
+    color: '#94a3b8',
+    fontSize: 8,
+    fontWeight: '900',
+    letterSpacing: 1.2,
+    marginBottom: 4,
   },
 
   rewardValue: {
-    color: '#334155',
-    fontSize: 15,
-    fontWeight: '800',
+    color: '#111827',
+    fontSize: 20,
+    fontWeight: '900',
     textAlign: 'center',
   },
+
+  rewardDescription: {
+    color: '#64748b',
+    fontSize: 10,
+    lineHeight: 15,
+    textAlign: 'center',
+    paddingHorizontal: 10,
+  },
+
+  /*
+   * =========================================================
+   * NO REWARD
+   * =========================================================
+   */
 
   noRewardBox: {
     width: '100%',
     backgroundColor: '#fef2f2',
-    borderRadius: 12,
-    padding: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#fecaca',
+    padding: 16,
     marginBottom: 14,
+    alignItems: 'center',
+  },
+
+  noRewardIcon: {
+    fontSize: 25,
+    marginBottom: 6,
+  },
+
+  noRewardTitle: {
+    color: '#991b1b',
+    fontSize: 14,
+    fontWeight: '900',
+    textAlign: 'center',
+    marginBottom: 5,
   },
 
   noReward: {
     color: '#dc2626',
-    fontSize: 13,
+    fontSize: 12,
+    lineHeight: 18,
     textAlign: 'center',
   },
 
@@ -377,6 +465,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 10,
+  },
+
+  infoEmoji: {
+    fontSize: 18,
   },
 
   infoContent: {
