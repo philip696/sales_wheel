@@ -1,9 +1,11 @@
 import { router } from 'expo-router';
-import { StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
+import { Alert, StyleSheet, Text, View } from 'react-native';
 
 import { PrimaryButton } from '@/src/components/PrimaryButton';
 import { ScreenContainer } from '@/src/components/ScreenContainer';
 import { useAttendanceFlow } from '@/src/features/attendance/AttendanceFlowContext';
+import { confirmAttendanceOrder } from '@/src/services/attendanceService';
 
 export default function AttendanceResultScreen() {
   const {
@@ -12,6 +14,15 @@ export default function AttendanceResultScreen() {
     setOrderPlaced,
     resetFlow,
   } = useAttendanceFlow();
+
+  /*
+   * Tracks the in-flight confirm_attendance_order RPC call so
+   * both buttons can be disabled while it's saving, and so a
+   * failed save doesn't silently leave the backend out of sync
+   * with what the sales rep sees on screen.
+   */
+  const [savingOrder, setSavingOrder] =
+    useState(false);
 
   /*
    * =========================================================
@@ -85,12 +96,35 @@ export default function AttendanceResultScreen() {
    *
    */
 
-  const handleOrderYes = () => {
-    setOrderPlaced(true);
+  const handleOrderYes = async () => {
+    setSavingOrder(true);
 
-    router.push(
-      '/(sales)/spin'
-    );
+    try {
+      await confirmAttendanceOrder(
+        lastSubmission.attendanceId,
+        true
+      );
+
+      setOrderPlaced(true);
+
+      router.push(
+        '/(sales)/spin'
+      );
+    } catch (err) {
+      console.error(
+        'Failed to save order confirmation:',
+        err
+      );
+
+      Alert.alert(
+        'Could Not Save',
+        err instanceof Error
+          ? err.message
+          : 'Could not save your order confirmation. Please try again.'
+      );
+    } finally {
+      setSavingOrder(false);
+    }
   };
 
   /*
@@ -114,12 +148,35 @@ export default function AttendanceResultScreen() {
    * after returning.
    */
 
-  const handleOrderNo = () => {
-    setOrderPlaced(false);
+  const handleOrderNo = async () => {
+    setSavingOrder(true);
 
-    router.replace(
-      '/(sales)'
-    );
+    try {
+      await confirmAttendanceOrder(
+        lastSubmission.attendanceId,
+        false
+      );
+
+      setOrderPlaced(false);
+
+      router.replace(
+        '/(sales)'
+      );
+    } catch (err) {
+      console.error(
+        'Failed to save order confirmation:',
+        err
+      );
+
+      Alert.alert(
+        'Could Not Save',
+        err instanceof Error
+          ? err.message
+          : 'Could not save your order confirmation. Please try again.'
+      );
+    } finally {
+      setSavingOrder(false);
+    }
   };
 
   return (
@@ -246,6 +303,8 @@ export default function AttendanceResultScreen() {
         <PrimaryButton
           title="YES — GO TO SPIN"
           onPress={handleOrderYes}
+          loading={savingOrder}
+          disabled={savingOrder}
           style={styles.yesButton}
         />
       </View>
@@ -283,6 +342,8 @@ export default function AttendanceResultScreen() {
           title="NO — FINISH VISIT"
           variant="secondary"
           onPress={handleOrderNo}
+          loading={savingOrder}
+          disabled={savingOrder}
           style={styles.noButton}
         />
       </View>

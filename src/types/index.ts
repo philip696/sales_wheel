@@ -59,6 +59,7 @@ export interface Attendance {
   status: AttendanceStatus;
   rejection_reason: string | null;
   created_at: string;
+  order_confirmed: boolean | null;
 }
 
 export interface Reward {

@@ -114,6 +114,7 @@ export interface Database {
           status: AttendanceStatus;
           rejection_reason: string | null;
           created_at: string;
+          order_confirmed: boolean | null;
         };
         Insert: {
           id?: string;
@@ -129,6 +130,7 @@ export interface Database {
           status?: AttendanceStatus;
           rejection_reason?: string | null;
           created_at?: string;
+          order_confirmed?: boolean | null;
         };
         Update: {
           id?: string;
@@ -144,6 +146,7 @@ export interface Database {
           status?: AttendanceStatus;
           rejection_reason?: string | null;
           created_at?: string;
+          order_confirmed?: boolean | null;
         };
         Relationships: [];
       };

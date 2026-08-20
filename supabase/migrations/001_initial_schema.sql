@@ -209,3 +209,39 @@ $$;
 CREATE TRIGGER attendance_status_guard
   BEFORE INSERT OR UPDATE ON public.attendance
   FOR EACH ROW EXECUTE FUNCTION public.enforce_attendance_status();
+
+  -- Remove the manual admin-approval workflow for attendance.
+--
+-- Root cause of the "needs approval" behavior: submit_attendance() already
+-- computed a real status ('approved' or 'rejected') from GPS/geofence
+-- validation at submission time, but the attendance_status_guard trigger
+-- unconditionally overwrote every new row's status to 'pending' on INSERT,
+-- forcing an admin to manually click Approve/Reject afterward before the
+-- rep could spin the wheel (request_spin requires status = 'approved').
+--
+-- This migration removes that override. submit_attendance()'s own
+-- validation decision now takes effect immediately — no admin step in
+-- between. GPS/geofence/photo validation itself is unchanged; only the
+-- human review gate is removed.
+
+CREATE OR REPLACE FUNCTION public.enforce_attendance_status()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  -- INSERT no longer forces 'pending' — submit_attendance() sets the
+  -- real, final status directly and nothing here overrides it.
+  IF TG_OP = 'UPDATE' THEN
+    IF NOT public.is_admin() AND NEW.status IS DISTINCT FROM OLD.status THEN
+      RAISE EXCEPTION 'Only admins can change attendance status';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+-- Resolve any attendance rows already stuck in 'pending' from the old
+-- behavior — auto-approve them so existing history isn't left hanging.
+UPDATE public.attendance
+SET status = 'approved', rejection_reason = NULL
+WHERE status = 'pending';

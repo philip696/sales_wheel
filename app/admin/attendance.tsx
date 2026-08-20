@@ -22,6 +22,7 @@ type AttendanceRecord = {
   photo_path: string | null;
   client_captured_at: string | null;
   created_at: string;
+  order_confirmed: boolean | null;
 
   sales: {
     id: string;
@@ -38,11 +39,6 @@ type AttendanceRecord = {
   photo_url: string | null;
 
   orderPlaced: boolean;
-};
-
-type SpinRecord = {
-  id: string;
-  attendance_id: string | null;
 };
 
 export default function AdminAttendanceScreen() {
@@ -117,6 +113,7 @@ export default function AdminAttendanceScreen() {
               photo_path,
               client_captured_at,
               created_at,
+              order_confirmed,
 
               sales:sales_id (
                 id,
@@ -162,84 +159,6 @@ export default function AdminAttendanceScreen() {
 
         /*
          * --------------------------------------------------------
-         * LOAD SPINS
-         * --------------------------------------------------------
-         *
-         * A spin connected to an attendance means:
-         *
-         * ORDER: YES
-         *
-         * No spin connected to the attendance means:
-         *
-         * ORDER: NO
-         */
-
-        const attendanceIds =
-          attendanceRecords.map(
-            (record) => record.id
-          );
-
-        let spins: SpinRecord[] =
-          [];
-
-        /*
-         * Only query spins if there are attendance records.
-         */
-
-        if (
-          attendanceIds.length >
-          0
-        ) {
-          const {
-            data: spinData,
-            error: spinError,
-          } =
-            await supabase
-              .from('spins')
-              .select(
-                'id, attendance_id'
-              )
-              .in(
-                'attendance_id',
-                attendanceIds
-              );
-
-          if (spinError) {
-            throw new Error(
-              `Could not read order history: ${spinError.message}`
-            );
-          }
-
-          spins =
-            (spinData ??
-              []) as SpinRecord[];
-        }
-
-        /*
-         * --------------------------------------------------------
-         * CREATE FAST ORDER LOOKUP
-         * --------------------------------------------------------
-         */
-
-        const orderAttendanceIds =
-          new Set(
-            spins
-              .map(
-                (spin) =>
-                  spin.attendance_id
-              )
-              .filter(
-                (
-                  id
-                ): id is string =>
-                  typeof id ===
-                    'string' &&
-                  id.length > 0
-              )
-          );
-
-        /*
-         * --------------------------------------------------------
          * LOAD SIGNED PHOTO URLS
          * --------------------------------------------------------
          */
@@ -278,13 +197,18 @@ export default function AdminAttendanceScreen() {
                     photoUrl,
 
                   /*
-                   * Determine whether this visit
-                   * resulted in an order.
+                   * Whether this visit resulted in an order,
+                   * read directly from
+                   * attendance.order_confirmed
+                   * (008_attendance_order_confirmation.sql)
+                   * rather than inferred from a linked spins
+                   * row. NULL (not yet answered) is treated
+                   * the same as NO for this badge, since the
+                   * UI only has a binary YES/NO state today.
                    */
                   orderPlaced:
-                    orderAttendanceIds.has(
-                      record.id
-                    ),
+                    record.order_confirmed ===
+                    true,
                 };
               }
             )

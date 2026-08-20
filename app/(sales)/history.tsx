@@ -22,16 +22,12 @@ type AttendanceRecord = {
   photo_path: string | null;
   client_captured_at: string | null;
   created_at: string;
+  order_confirmed: boolean | null;
 
   store: {
     id: string;
     name: string;
   } | null;
-};
-
-type SpinRecord = {
-  id: string;
-  attendance_id: string | null;
 };
 
 type HistoryRecord = AttendanceRecord & {
@@ -130,6 +126,7 @@ export default function SalesHistoryScreen() {
           photo_path,
           client_captured_at,
           created_at,
+          order_confirmed,
 
           store:store_id (
             id,
@@ -153,57 +150,14 @@ export default function SalesHistoryScreen() {
 
       /*
        * ----------------------------------------------------------
-       * LOAD SPINS
+       * ATTACH ORDER RESULT
        * ----------------------------------------------------------
-       */
-
-      const {
-        data: spinData,
-        error: spinError,
-      } = await supabase
-        .from('spins')
-        .select(
-          'id, attendance_id'
-        )
-        .eq('sales_id', sales.id);
-
-      if (spinError) {
-        throw new Error(
-          `Could not load spin history: ${spinError.message}`
-        );
-      }
-
-      const spins =
-        (spinData ??
-          []) as SpinRecord[];
-
-      /*
-       * ----------------------------------------------------------
-       * CREATE FAST LOOKUP OF ORDER VISITS
-       * ----------------------------------------------------------
-       */
-
-      const orderAttendanceIds =
-        new Set(
-          spins
-            .map(
-              (spin) =>
-                spin.attendance_id
-            )
-            .filter(
-              (
-                id
-              ): id is string =>
-                typeof id ===
-                'string' &&
-                id.length > 0
-            )
-        );
-
-      /*
-       * ----------------------------------------------------------
-       * COMBINE ATTENDANCE + ORDER RESULT
-       * ----------------------------------------------------------
+       *
+       * Read directly from attendance.order_confirmed
+       * (008_attendance_order_confirmation.sql) instead of
+       * inferring it from a linked spins row. NULL (not yet
+       * answered) is treated the same as NO here, since this
+       * screen only shows a binary YES/NO state today.
        */
 
       const history: HistoryRecord[] =
@@ -211,9 +165,8 @@ export default function SalesHistoryScreen() {
           (record) => ({
             ...record,
             orderPlaced:
-              orderAttendanceIds.has(
-                record.id
-              ),
+              record.order_confirmed ===
+              true,
           })
         );
 

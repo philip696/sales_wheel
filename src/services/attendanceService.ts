@@ -335,6 +335,49 @@ export async function submitAttendance(
 }
 
 /**
+ * Persist the sales rep's "did you place an order?" answer for an
+ * approved attendance visit.
+ *
+ * Calls the confirm_attendance_order RPC (008_attendance_order_confirmation.sql)
+ * rather than updating public.attendance directly -- sales reps only have
+ * SELECT/INSERT RLS policies on that table, not UPDATE, and the RPC also
+ * confirms the attendance belongs to the caller and is still 'approved'.
+ */
+export async function confirmAttendanceOrder(
+  attendanceId: string,
+  orderConfirmed: boolean
+): Promise<Attendance> {
+  const { data, error } = await supabase.rpc(
+    'confirm_attendance_order',
+    {
+      p_attendance_id: attendanceId,
+      p_order_confirmed: orderConfirmed,
+    }
+  );
+
+  if (error) {
+    console.error(
+      'confirm_attendance_order RPC error:',
+      error
+    );
+
+    throw new Error(
+      `Could not save order confirmation: ${error.message}`
+    );
+  }
+
+  const result = Array.isArray(data) ? data[0] : data;
+
+  if (!result) {
+    throw new Error(
+      'No result returned from confirm_attendance_order'
+    );
+  }
+
+  return result as Attendance;
+}
+
+/**
  * Get the authenticated user's attendance history.
  */
 export async function getMyAttendanceHistory(

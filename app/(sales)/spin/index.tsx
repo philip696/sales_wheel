@@ -255,6 +255,7 @@ export default function SpinScreen() {
     spinCompleted,
     setSpinCompleted,
     setLastSpin,
+    lastSpin,
   } = useAttendanceFlow();
 
   /*
@@ -491,88 +492,47 @@ export default function SpinScreen() {
     !spinCompleted &&
     rewards.length > 0;
 
-  /*
+/*
    * ==========================================================
    * ALREADY COMPLETED
    * ==========================================================
    */
 
-  if (
-    spinCompleted
-  ) {
+  if (spinCompleted) {
+    const rewardName = lastSpin?.reward?.name;
+    const rewardValue = lastSpin?.reward?.value;
+
     return (
       <ScreenContainer
         title="Spin Wheel"
         subtitle="Reward already claimed"
       >
-        <View
-          style={
-            styles.completedCard
-          }
-        >
-          <View
-            style={
-              styles.completedIcon
-            }
-          >
-            <Text
-              style={
-                styles.completedEmoji
-              }
-            >
-              🎉
-            </Text>
+        <View style={styles.completedCard}>
+          <View style={styles.completedIcon}>
+            <Text style={styles.completedEmoji}>🎉</Text>
           </View>
 
-          <Text
-            style={
-              styles.completedTitle
-            }
-          >
-            Wheel Already Spun
+          <Text style={styles.completedTitle}>
+            {rewardName ?? 'Reward Claimed'}: {rewardValue ?? ''}
           </Text>
 
-          <Text
-            style={
-              styles.completedText
-            }
-          >
-            You have already used the
-            Spin Wheel for this
-            attendance.
+          <Text style={styles.completedText}>
+            You have unlocked this reward: {rewardName ?? 'Reward Claimed'}
           </Text>
 
           {selectedStore ? (
-            <View
-              style={
-                styles.storePill
-              }
-            >
-              <Text
-                style={
-                  styles.storePillText
-                }
-              >
+            <View style={styles.storePill}>
+              <Text style={styles.storePillText}>
                 📍 {selectedStore.name}
               </Text>
             </View>
           ) : null}
 
           <Pressable
-            style={
-              styles.backButton
-            }
-            onPress={() =>
-              router.replace(
-                '/(sales)'
-              )
-            }
+            style={styles.backButton}
+            onPress={() => router.replace('/(sales)')}
           >
-            <Text
-              style={
-                styles.backButtonText
-              }
-            >
+            <Text style={styles.backButtonText}>
               BACK TO HOME
             </Text>
           </Pressable>

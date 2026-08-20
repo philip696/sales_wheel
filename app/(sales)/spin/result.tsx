@@ -16,6 +16,8 @@ export default function SpinResultScreen() {
   } = useAttendanceFlow();
 
   const reward = lastSpin?.reward;
+  const rewardName = reward?.name;
+  const rewardValue = reward?.value;
 
   return (
     <ScreenContainer
@@ -83,7 +85,7 @@ export default function SpinResultScreen() {
                   </Text>
 
                   <Text style={styles.rewardValue}>
-                    {reward.value}
+                    {reward.name}
                   </Text>
                 </View>
               ) : null}
