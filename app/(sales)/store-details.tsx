@@ -233,7 +233,7 @@ export default function StoreDetailsScreen() {
         return;
       }
 
-      router.back();
+          router.replace('/stores');
     };
 
   /*

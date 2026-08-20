@@ -98,16 +98,13 @@ export default function AttendanceCameraScreen() {
    * The selected store and attendance state remain intact.
    */
 
-  const handleBack = () => {
-    if (
-      capturing ||
-      checkingFace
-    ) {
-      return;
-    }
-
-    router.back();
-  };
+ const handleBack = () => {
+  if (capturing || checkingFace) {
+    return;
+  }
+    // Fallback route if user landed here directly or stack was reset
+    router.replace('/attendance');
+};
 
   /*
    * ============================================================

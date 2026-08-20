@@ -12,16 +12,58 @@ import {
 import { router } from 'expo-router';
 import { useState } from 'react';
 
+import { Alert, Platform } from 'react-native';
+
+
+interface AlertButton {
+  text?: string;
+  onPress?: () => void;
+  style?: 'default' | 'cancel' | 'destructive';
+}
+
+export const showAlert = (
+  title: string,
+  message?: string,
+  buttons?: AlertButton[]
+) => {
+  if (Platform.OS === 'web') {
+    const fullText = message ? `${title}\n\n${message}` : title;
+
+    // Handle array of buttons on Web
+    if (buttons && buttons.length > 0) {
+      if (buttons.length === 1) {
+        // Single button -> Standard Alert
+        window.alert(fullText);
+        buttons[0].onPress?.();
+      } else {
+        // Multiple buttons -> standard Confirm/Cancel dialog
+        const confirmBtn = buttons.find((b) => b.style !== 'cancel') ?? buttons[0];
+        const cancelBtn = buttons.find((b) => b.style === 'cancel');
+
+        const confirmed = window.confirm(fullText);
+        if (confirmed) {
+          confirmBtn.onPress?.();
+        } else {
+          cancelBtn?.onPress?.();
+        }
+      }
+    } else {
+      window.alert(fullText);
+    }
+  } else {
+    // Native Alert
+    Alert.alert(title, message, buttons, { cancelable: false });
+  }
+};
+
 import {
     ActivityIndicator,
-    Alert,
     KeyboardAvoidingView,
-    Platform,
     Pressable,
     ScrollView,
     StyleSheet,
     Text,
-    View,
+    View
 } from 'react-native';
 
 const STORE_RADIUS_METERS = 5000;
@@ -85,13 +127,17 @@ export default function AddStoreScreen() {
    * ============================================================
    */
 
-  const handleCancel = () => {
+    const handleCancel = () => {
     if (busy) {
-      return;
+        return;
     }
 
-    router.back();
-  };
+    if (router.canGoBack()) {
+        router.back();
+    } else {
+        router.replace('/'); // Fallback if opened via direct link or page refresh
+    }
+    };
 
   /*
    * ============================================================
@@ -283,7 +329,7 @@ export default function AddStoreScreen() {
         await requestPermission();
 
       if (!permitted) {
-        Alert.alert(
+        showAlert(
           'Location Required',
           'Location permission is required to add a store.'
         );
@@ -295,7 +341,7 @@ export default function AddStoreScreen() {
         await getCurrentPosition();
 
       if (!reading) {
-        Alert.alert(
+        showAlert(
           'Location Unavailable',
           'Could not determine your current location. Make sure GPS/location services are enabled and try again.'
         );
@@ -338,7 +384,7 @@ export default function AddStoreScreen() {
         distance >
         STORE_RADIUS_METERS
       ) {
-        Alert.alert(
+        showAlert(
           'You Are Too Far Away',
           `You must be at the store location to add it.\n\nYou are approximately ${distance.toFixed(
             0
@@ -354,7 +400,7 @@ export default function AddStoreScreen() {
         reading.accuracy >
           STORE_RADIUS_METERS
       ) {
-        Alert.alert(
+        showAlert(
           'GPS Accuracy Too Low',
           `Your GPS accuracy is approximately ${reading.accuracy.toFixed(
             0
@@ -439,7 +485,7 @@ export default function AddStoreScreen() {
           createdStore
         );
 
-        Alert.alert(
+        showAlert(
           'Store Added',
           `${createdStore.name} has been added successfully.`,
           [

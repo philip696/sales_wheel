@@ -748,9 +748,25 @@ export default function AttendancePreviewScreen() {
           styles.button
         }
       />
+      
+{/* {/* ========================================================
+    DEBUGGGGGG
+========================================================= 
+
+<PrimaryButton
+  title="BAOCAUC"
+  variant="secondary"
+  onPress={() =>
+    console.log('📸 CURRENT PHOTO URI:', photoUri)
+  }
+  style={styles.button}
+/>
+*/}
+
     </ScreenContainer>
   );
 }
+
 
 /*
  * ================================================================
@@ -760,17 +776,17 @@ export default function AttendancePreviewScreen() {
 
 const styles = StyleSheet.create({
   imageContainer: {
-    flex: 1,
+    width: '100%',
+    height: 350, // Fixed height ensures Base64 images render immediately
     marginBottom: 16,
     borderRadius: 12,
     overflow: 'hidden',
-    backgroundColor:
-      '#f1f5f9',
+    backgroundColor: '#f1f5f9',
   },
 
   image: {
-    flex: 1,
-    resizeMode: 'contain',
+    width: '100%',
+    height: '100%',
   },
 
   button: {
