@@ -1,7 +1,9 @@
 import { ScreenContainer } from '@/src/components/ScreenContainer';
 import { useAttendanceFlow } from '@/src/features/attendance/AttendanceFlowContext';
+import { supabase } from '@/src/lib/supabase';
 import { listActiveRewards } from '@/src/services/rewardService';
 import type { Reward } from '@/src/types';
+import * as Location from 'expo-location';
 import { router } from 'expo-router';
 import {
   useEffect,
@@ -83,132 +85,6 @@ type WheelReward = Reward & {
 
 /*
  * ============================================================
- * SELECT REWARD USING DATABASE PROBABILITY
- * ============================================================
- *
- * The probability comes directly from the rewards table.
- *
- * Example:
- *
- * reward A = 0.25
- * reward B = 0.35
- * reward C = 0.25
- * reward D = 0.15
- *
- * Total = 1.00
- *
- * Probability is NOT displayed to the user.
- *
- * ============================================================
- */
-
-function selectRewardByProbability(
-  rewards: WheelReward[]
-): WheelReward {
-  if (rewards.length === 0) {
-    throw new Error(
-      'No active rewards are available.'
-    );
-  }
-
-  const totalProbability =
-    rewards.reduce(
-      (sum, reward) =>
-        sum + Number(reward.probability),
-      0
-    );
-
-  console.log(
-    '================================================'
-  );
-
-  console.log(
-    'SPIN REWARD SELECTION'
-  );
-
-  console.log(
-    'TOTAL REWARD PROBABILITY:',
-    totalProbability
-  );
-
-  /*
-   * Random number based on the total probability.
-   */
-
-  const random =
-    Math.random() *
-    totalProbability;
-
-  console.log(
-    'RANDOM VALUE:',
-    random
-  );
-
-  let cumulative = 0;
-
-  for (
-    const reward of rewards
-  ) {
-    cumulative +=
-      Number(
-        reward.probability
-      );
-
-    console.log(
-      'CHECKING REWARD:',
-      {
-        id: reward.id,
-        name: reward.name,
-        probability:
-          reward.probability,
-        cumulative,
-      }
-    );
-
-    if (
-      random <
-      cumulative
-    ) {
-      console.log(
-        'SELECTED REWARD:',
-        {
-          id: reward.id,
-          name: reward.name,
-          value: reward.value,
-        }
-      );
-
-      console.log(
-        '================================================'
-      );
-
-      return reward;
-    }
-  }
-
-  /*
-   * Floating point safety fallback.
-   */
-
-  const fallback =
-    rewards[
-      rewards.length - 1
-    ];
-
-  console.log(
-    'PROBABILITY FALLBACK:',
-    fallback
-  );
-
-  console.log(
-    '================================================'
-  );
-
-  return fallback;
-}
-
-/*
- * ============================================================
  * PREPARE WHEEL REWARDS
  * ============================================================
  */
@@ -233,6 +109,102 @@ function prepareWheelRewards(
         ],
     })
   );
+}
+
+/**
+ * Submit the completed wheel spin to PostgreSQL.
+ *
+ * IMPORTANT:
+ * - The wheel animation has already finished before this is called.
+ * - This function is the only place where the completed spin is posted.
+ * - The PostgreSQL `submit_rewards` RPC is responsible for validating
+ *   the attendance/order and selecting the actual reward.
+ */
+async function submitCompletedReward(params: {
+  attendanceId: string;
+  storeId: string;
+  latitude: number;
+  longitude: number;
+}) {
+  console.log('================================');
+  console.log('SUBMITTING COMPLETED SPIN');
+  console.log('ATTENDANCE ID:', params.attendanceId);
+  console.log('STORE ID:', params.storeId);
+  console.log('LATITUDE:', params.latitude);
+  console.log('LONGITUDE:', params.longitude);
+  console.log('RPC: submit_rewards');
+  console.log('================================');
+
+  const { data, error } = await supabase.rpc(
+    'submit_rewards',
+    {
+      p_attendance_id: params.attendanceId,
+      p_store_id: params.storeId,
+      p_latitude: params.latitude,
+      p_longitude: params.longitude,
+    }
+  );
+
+  console.log('SUBMIT_REWARDS DATA:', data);
+  console.log('SUBMIT_REWARDS ERROR:', error);
+
+  if (error) {
+    throw new Error(
+      `submit_rewards failed: ${error.message}`
+    );
+  }
+
+  const result = Array.isArray(data)
+    ? data[0]
+    : data;
+
+  if (!result) {
+    throw new Error(
+      'submit_rewards returned no result.'
+    );
+  }
+
+  console.log(
+    'SUBMIT_REWARDS RESULT:',
+    result
+  );
+
+  const resultStatus =
+    result.status ??
+    result.result_status;
+
+  if (resultStatus === 'rejected') {
+    throw new Error(
+      result.rejection_reason ??
+        'The spin was rejected by the server.'
+    );
+  }
+
+  if (!result.spin_id) {
+    throw new Error(
+      'submit_rewards did not return a spin ID.'
+    );
+  }
+
+  if (!result.reward_id) {
+    throw new Error(
+      'submit_rewards did not return a reward ID.'
+    );
+  }
+
+  return {
+    spinId: result.spin_id as string,
+    status: resultStatus as string,
+    rewardId: result.reward_id as string,
+    rewardName:
+      result.reward_name as string,
+    rewardValue:
+      (result.reward_value ?? '') as string,
+    rejectionReason:
+      (result.rejection_reason ?? null) as
+        | string
+        | null,
+  };
 }
 
 /*
@@ -873,341 +845,390 @@ export default function SpinScreen() {
    * ==========================================================
    */
 
-  const spinWheel =
-    async () => {
-      if (!canSpin) {
-        console.log(
-          'SPIN BLOCKED: canSpin = false'
-        );
+  const spinWheel = async () => {
+    if (!canSpin) {
+      console.log(
+        'SPIN BLOCKED: canSpin = false'
+      );
+      return;
+    }
 
-        return;
-      }
+    if (
+      spinning ||
+      wonReward ||
+      spinCompleted
+    ) {
+      console.log(
+        'SPIN BLOCKED: already spinning/completed'
+      );
+      return;
+    }
+
+    if (!lastSubmission?.attendanceId) {
+      Alert.alert(
+        'Attendance Required',
+        'No attendance ID was found. Please complete attendance again.'
+      );
+      return;
+    }
+
+    if (!selectedStore?.id) {
+      Alert.alert(
+        'Store Required',
+        'Please select a store first.'
+      );
+      return;
+    }
+
+    if (rewards.length === 0) {
+      Alert.alert(
+        'No Rewards',
+        'There are no active rewards available.'
+      );
+      return;
+    }
+
+    console.log(
+      '================================'
+    );
+    console.log(
+      'SPIN BUTTON PRESSED'
+    );
+    console.log(
+      'ATTENDANCE ID:',
+      lastSubmission.attendanceId
+    );
+    console.log(
+      'STORE ID:',
+      selectedStore.id
+    );
+    console.log(
+      'ORDER PLACED:',
+      orderPlaced
+    );
+    console.log(
+      '================================'
+    );
+
+    setSpinning(true);
+
+    try {
+      /*
+       * --------------------------------------------------------
+       * GET CURRENT GPS BEFORE ANIMATION
+       * --------------------------------------------------------
+       *
+       * We capture the GPS now so the database POST can happen
+       * immediately after the wheel animation finishes.
+       *
+       * Nothing is written to Supabase at this point.
+       */
+      const {
+        status,
+      } =
+        await Location.requestForegroundPermissionsAsync();
 
       if (
-        spinning ||
-        wonReward ||
-        spinCompleted
+        status !==
+        Location.PermissionStatus.GRANTED
       ) {
-        console.log(
-          'SPIN BLOCKED: already spinning/completed'
+        throw new Error(
+          'Location permission is required to complete the spin.'
         );
-
-        return;
       }
 
-      if (
-        !lastSubmission
-      ) {
-        Alert.alert(
-          'Attendance Required',
-          'Complete attendance before spinning.'
-        );
+      const location =
+        await Location.getCurrentPositionAsync({
+          accuracy:
+            Location.Accuracy.High,
+        });
 
-        return;
-      }
+      const latitude =
+        location.coords.latitude;
 
-      if (
-        !selectedStore
-      ) {
-        Alert.alert(
-          'Store Required',
-          'Please select a store first.'
-        );
-
-        return;
-      }
-
-      if (
-        rewards.length === 0
-      ) {
-        Alert.alert(
-          'No Rewards',
-          'There are no active rewards available.'
-        );
-
-        return;
-      }
+      const longitude =
+        location.coords.longitude;
 
       console.log(
-        '================================================'
-      );
-
-      console.log(
-        'STARTING SPIN'
-      );
-
-      console.log(
-        'STORE:',
-        selectedStore
-      );
-
-      console.log(
-        'ATTENDANCE:',
-        lastSubmission
-      );
-
-      console.log(
-        'ORDER PLACED:',
-        orderPlaced
+        'SPIN GPS CAPTURED:',
+        {
+          latitude,
+          longitude,
+        }
       );
 
       /*
-       * Do NOT log probability on the UI.
+       * --------------------------------------------------------
+       * VISUAL SPIN ONLY
+       * --------------------------------------------------------
        *
-       * It can still be logged in development console.
+       * IMPORTANT:
+       *
+       * We intentionally do NOT select a reward here.
+       *
+       * The wheel simply performs a visual spin to a random
+       * section. The actual reward is selected by PostgreSQL
+       * after the animation completes.
        */
+      const visibleRewards =
+        rewards.slice(0, 4);
+
+      if (
+        visibleRewards.length === 0
+      ) {
+        throw new Error(
+          'No rewards are available for the wheel.'
+        );
+      }
+
+      const visualIndex =
+        Math.floor(
+          Math.random() *
+            visibleRewards.length
+        );
+
+      const sliceAngle =
+        360 /
+        4;
+
+      const selectedSliceCenter =
+        visualIndex *
+          sliceAngle +
+        sliceAngle / 2;
+
+      const targetRotation =
+        360 -
+        selectedSliceCenter;
+
+      const extraTurns =
+        360 * 6;
+
+      const finalDegree =
+        currentRotation.current +
+        extraTurns +
+        targetRotation;
 
       console.log(
-        'AVAILABLE REWARDS:',
-        rewards
+        'VISUAL WHEEL INDEX:',
+        visualIndex
       );
 
-      setSpinning(
-        true
+      console.log(
+        'FINAL VISUAL ROTATION:',
+        finalDegree
       );
 
-      try {
-        /*
-         * ======================================================
-         * SELECT WINNER
-         * ======================================================
-         *
-         * Probability comes from Supabase.
-         *
-         * Probability is hidden from the sales user.
-         */
+      /*
+       * --------------------------------------------------------
+       * ANIMATE
+       * --------------------------------------------------------
+       */
+      Animated.timing(
+        spinValue,
+        {
+          toValue:
+            finalDegree,
+          duration:
+            5000,
+          easing:
+            Easing.out(
+              Easing.cubic
+            ),
+          useNativeDriver:
+            true,
+        }
+      ).start(
+        async ({
+          finished,
+        }) => {
+          if (!finished) {
+            console.warn(
+              'SPIN ANIMATION DID NOT FINISH'
+            );
 
-        const selectedReward =
-          selectRewardByProbability(
-            rewards
-          );
-
-        console.log(
-          'FINAL SELECTED REWARD:',
-          {
-            id:
-              selectedReward.id,
-
-            name:
-              selectedReward.name,
-
-            value:
-              selectedReward.value,
-
-            wheelIndex:
-              selectedReward.wheelIndex,
+            setSpinning(false);
+            return;
           }
-        );
 
-        /*
-         * ======================================================
-         * SAVE LOCAL FLOW RESULT
-         * ======================================================
-         *
-         * This does NOT modify the database.
-         *
-         * It updates your existing context.
-         */
-
-        try {
-          setLastSpin({
-            spinId:
-              `frontend-${Date.now()}`,
-
-            status:
-              'completed',
-
-            reward: {
-              id:
-                selectedReward.id,
-
-              name:
-                selectedReward.name,
-
-              value:
-                selectedReward.value,
-            },
-
-            rejectionReason:
-              null,
-          });
+          currentRotation.current =
+            finalDegree % 360;
 
           console.log(
-            'LOCAL SPIN RESULT SAVED TO CONTEXT'
+            '================================'
           );
-        } catch (
-          contextError
-        ) {
-          console.warn(
-            'COULD NOT SAVE SPIN TO CONTEXT:',
-            contextError
+          console.log(
+            'WHEEL ANIMATION COMPLETE'
           );
-        }
-
-        /*
-         * ======================================================
-         * EQUAL SLICE SIZE
-         * ======================================================
-         *
-         * Example:
-         *
-         * 4 rewards = 90 degrees each
-         *
-         * 3 rewards = 120 degrees each
-         *
-         * 2 rewards = 180 degrees each
-         *
-         * Probability NEVER changes this.
-         */
-
-        const visibleRewards =
-          rewards.slice(
-            0,
-            4
+          console.log(
+            'NOW CALLING DATABASE'
+          );
+          console.log(
+            'POST /rest/v1/rpc/submit_rewards'
+          );
+          console.log(
+            '================================'
           );
 
-        const rewardIndex =
-          visibleRewards.findIndex(
-            (
-              reward
-            ) =>
-              reward.id ===
-              selectedReward.id
-          );
+          try {
+            /*
+             * --------------------------------------------------
+             * DATABASE POST
+             * --------------------------------------------------
+             *
+             * THIS IS THE ONLY REWARD SUBMISSION.
+             *
+             * The call happens AFTER the wheel has completely
+             * finished spinning.
+             */
+            const result =
+              await submitCompletedReward({
+                attendanceId:
+                  lastSubmission.attendanceId,
+                storeId:
+                  selectedStore.id,
+                latitude,
+                longitude,
+              });
 
-        /*
-         * Safety check.
-         */
-
-        if (
-          rewardIndex < 0
-        ) {
-          throw new Error(
-            'Selected reward is not visible on the wheel.'
-          );
-        }
-
-        const sliceAngle =
-          360 /
-          4;
-
-        console.log(
-          'WHEEL SLICE ANGLE:',
-          sliceAngle
-        );
-
-        console.log(
-          'SELECTED WHEEL INDEX:',
-          rewardIndex
-        );
-
-        /*
-         * ======================================================
-         * POINTER ALIGNMENT
-         * ======================================================
-         */
-
-        const selectedSliceCenter =
-          rewardIndex *
-            sliceAngle +
-          sliceAngle / 2;
-
-        const targetRotation =
-          360 -
-          selectedSliceCenter;
-
-        /*
-         * Six complete rotations.
-         */
-
-        const extraTurns =
-          360 * 6;
-
-        const finalDegree =
-          currentRotation.current +
-          extraTurns +
-          targetRotation;
-
-        console.log(
-          'SELECTED SLICE CENTER:',
-          selectedSliceCenter
-        );
-
-        console.log(
-          'TARGET ROTATION:',
-          targetRotation
-        );
-
-        console.log(
-          'FINAL ROTATION:',
-          finalDegree
-        );
-
-        /*
-         * ======================================================
-         * ANIMATION
-         * ======================================================
-         */
-
-        Animated.timing(
-          spinValue,
-          {
-            toValue:
-              finalDegree,
-
-            duration:
-              5000,
-
-            easing:
-              Easing.out(
-                Easing.cubic
-              ),
-
-            useNativeDriver:
-              true,
-          }
-        ).start(
-          ({
-            finished,
-          }) => {
-            if (
-              !finished
-            ) {
-              console.warn(
-                'SPIN ANIMATION DID NOT FINISH'
+            /*
+             * --------------------------------------------------
+             * MATCH SERVER RESULT TO WHEEL
+             * --------------------------------------------------
+             *
+             * The database is authoritative.
+             * The returned UUID determines which reward won.
+             */
+            const serverReward =
+              visibleRewards.find(
+                (reward) =>
+                  reward.id ===
+                  result.rewardId
               );
 
-              setSpinning(
-                false
+            if (!serverReward) {
+              throw new Error(
+                'The database returned a reward that is not displayed on the wheel.'
               );
-
-              return;
             }
 
-            currentRotation.current =
-              finalDegree %
-              360;
+            /*
+             * --------------------------------------------------
+             * ALIGN THE WHEEL TO THE REAL SERVER WINNER
+             * --------------------------------------------------
+             *
+             * The first animation above was only a visual spin.
+             * The database is authoritative.
+             *
+             * If the random visual stop did not land on the
+             * database-selected reward, perform a short final
+             * alignment animation to the actual winning slice.
+             */
+            const serverRewardIndex =
+              visibleRewards.findIndex(
+                (reward) =>
+                  reward.id ===
+                  result.rewardId
+              );
 
-            console.log(
-              'SPIN ANIMATION COMPLETE'
-            );
+            if (
+              serverRewardIndex >= 0
+            ) {
+              const serverSliceCenter =
+                serverRewardIndex *
+                  sliceAngle +
+                sliceAngle / 2;
 
-            console.log(
-              'WINNER:',
-              selectedReward
-            );
+              const serverTargetRotation =
+                360 -
+                serverSliceCenter;
+
+              const currentNormalized =
+                currentRotation.current;
+
+              let alignmentDelta =
+                serverTargetRotation -
+                currentNormalized;
+
+              if (
+                alignmentDelta < 0
+              ) {
+                alignmentDelta +=
+                  360;
+              }
+
+              const alignmentDegree =
+                currentRotation.current +
+                alignmentDelta;
+
+              await new Promise<void>(
+                (resolve) => {
+                  Animated.timing(
+                    spinValue,
+                    {
+                      toValue:
+                        alignmentDegree,
+                      duration: 800,
+                      easing:
+                        Easing.out(
+                          Easing.cubic
+                        ),
+                      useNativeDriver:
+                        true,
+                    }
+                  ).start(
+                    ({
+                      finished:
+                        alignmentFinished,
+                    }) => {
+                      if (
+                        alignmentFinished
+                      ) {
+                        currentRotation.current =
+                          alignmentDegree %
+                          360;
+                      }
+
+                      resolve();
+                    }
+                  );
+                }
+              );
+            }
 
             /*
-             * Show result.
+             * --------------------------------------------------
+             * SAVE REAL DATABASE RESULT
+             * --------------------------------------------------
              */
+            setLastSpin({
+              spinId:
+                result.spinId,
 
+              status:
+                result.status,
+
+              reward: {
+                id:
+                  result.rewardId,
+
+                name:
+                  result.rewardName,
+
+                value:
+                  result.rewardValue,
+              },
+
+              rejectionReason:
+                result.rejectionReason,
+            });
+
+            /*
+             * Only mark the frontend flow complete AFTER
+             * the database has successfully accepted the spin.
+             */
             setWonReward(
-              selectedReward
+              resolvedReward
             );
-
-            /*
-             * Mark local flow complete.
-             */
 
             setSpinCompleted(
               true
@@ -1218,34 +1239,63 @@ export default function SpinScreen() {
             );
 
             console.log(
-              'SPIN COMPLETED'
+              '================================'
+            );
+            console.log(
+              'DATABASE SPIN COMPLETED'
+            );
+            console.log(
+              'SPIN ID:',
+              result.spinId
+            );
+            console.log(
+              'REWARD ID:',
+              result.rewardId
+            );
+            console.log(
+              'REWARD:',
+              result.rewardName
+            );
+            console.log(
+              '================================'
+            );
+          } catch (
+            error
+          ) {
+            console.error(
+              'SUBMIT_REWARDS ERROR:',
+              error
             );
 
-            console.log(
-              '================================================'
+            setSpinning(false);
+
+            Alert.alert(
+              'Reward Submission Failed',
+              error instanceof Error
+                ? error.message
+                : 'The wheel finished, but the reward could not be recorded.'
             );
           }
-        );
-      } catch (
+        }
+      );
+    } catch (
+      error
+    ) {
+      console.error(
+        'SPIN ERROR:',
         error
-      ) {
-        console.error(
-          'SPIN ERROR:',
-          error
-        );
+      );
 
-        setSpinning(
-          false
-        );
+      setSpinning(false);
 
-        Alert.alert(
-          'Spin Failed',
-          error instanceof Error
-            ? error.message
-            : 'Unable to complete the spin.'
-        );
-      }
-    };
+      Alert.alert(
+        'Spin Failed',
+        error instanceof Error
+          ? error.message
+          : 'Unable to complete the spin.'
+      );
+    }
+  };
 
   /*
    * ==========================================================

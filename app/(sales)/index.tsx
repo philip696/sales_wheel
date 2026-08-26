@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import {
   Pressable,
   StyleSheet,
@@ -22,6 +22,20 @@ export default function SalesHomeScreen() {
     spinCompleted,
   } = useAttendanceFlow();
 
+  /*
+   * =========================================================
+   * AUTOMATIC ROLE REDIRECT
+   * =========================================================
+   *
+   * If an admin somehow reaches the Sales dashboard,
+   * immediately send them to the Admin dashboard.
+   */
+  useEffect(() => {
+    if (profile?.role === 'admin') {
+      router.replace('/admin');
+    }
+  }, [profile?.role]);
+
   const firstName = useMemo(() => {
     const name = profile?.name?.trim();
 
@@ -31,6 +45,60 @@ export default function SalesHomeScreen() {
 
     return name.split(' ')[0];
   }, [profile?.name]);
+
+  /*
+   * =========================================================
+   * WAIT FOR PROFILE
+   * =========================================================
+   *
+   * Prevent rendering the Sales dashboard before the
+   * authenticated user's profile has finished loading.
+   */
+  if (!profile) {
+    return (
+      <ScreenContainer
+        title="Loading..."
+        subtitle="Preparing your dashboard"
+      >
+        <View style={styles.loadingContainer}>
+          <View style={styles.loadingDot} />
+
+          <Text style={styles.loadingTitle}>
+            Loading your account
+          </Text>
+
+          <Text style={styles.loadingText}>
+            Please wait...
+          </Text>
+        </View>
+      </ScreenContainer>
+    );
+  }
+
+  /*
+   * If admin, the useEffect above will redirect.
+   * Do not render the Sales dashboard while redirecting.
+   */
+  if (profile.role === 'admin') {
+    return (
+      <ScreenContainer
+        title="Admin"
+        subtitle="Opening dashboard..."
+      >
+        <View style={styles.loadingContainer}>
+          <View style={styles.loadingDot} />
+
+          <Text style={styles.loadingTitle}>
+            Opening Admin Dashboard
+          </Text>
+
+          <Text style={styles.loadingText}>
+            Redirecting...
+          </Text>
+        </View>
+      </ScreenContainer>
+    );
+  }
 
   return (
     <ScreenContainer
@@ -317,9 +385,7 @@ export default function SalesHomeScreen() {
               <PrimaryButton
                 title="OPEN REWARD WHEEL"
                 onPress={() =>
-                  router.push(
-                    '/(sales)/spin'
-                  )
+                  router.push('/(sales)/spin')
                 }
                 style={styles.spinButton}
               />
@@ -446,6 +512,36 @@ export default function SalesHomeScreen() {
 }
 
 const styles = StyleSheet.create({
+  /* =========================================================
+   * LOADING
+   * ========================================================= */
+
+  loadingContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 80,
+  },
+
+  loadingDot: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: '#2563eb',
+    marginBottom: 15,
+  },
+
+  loadingTitle: {
+    fontSize: 15,
+    fontWeight: '900',
+    color: '#111827',
+    marginBottom: 5,
+  },
+
+  loadingText: {
+    fontSize: 11,
+    color: '#94a3b8',
+  },
+
   /* =========================================================
    * HERO
    * ========================================================= */
