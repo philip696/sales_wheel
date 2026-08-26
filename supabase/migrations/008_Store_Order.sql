@@ -1,0 +1,119 @@
+-- Order confirmation (yes/no) per attendance visit
+--
+-- The sales flow already asks "did you place an order?" after attendance
+-- is approved (app/(sales)/attendance/result.tsx -> ORDER YES / ORDER NO),
+-- but the answer only ever lived in client-side React state
+-- (AttendanceFlowContext.orderPlaced). Nothing was written to the
+-- database.
+--
+-- Both app/admin/attendance.tsx and app/(sales)/history.tsx were working
+-- around this by *inferring* an order from whether a spins row existed
+-- for that attendance_id (spins.attendance_id). That's an unreliable
+-- proxy: it depends on the spin wheel actually reaching the database
+-- (spin/index.tsx currently never calls request_spin at all -- see
+-- notes elsewhere), so today that inference is effectively always
+-- false regardless of what the sales rep answered.
+--
+-- This migration stores the answer directly on public.attendance instead.
+
+ALTER TABLE public.attendance
+  ADD COLUMN order_confirmed BOOLEAN DEFAULT NULL;
+
+-- NULL = not answered yet, TRUE = ORDER YES, FALSE = ORDER NO.
+-- Mirrors the boolean | null semantics AttendanceFlowContext.orderPlaced
+-- already uses on the frontend, so no meaning is lost in translation.
+
+COMMENT ON COLUMN public.attendance.order_confirmed IS
+  'Whether the sales rep placed an order during this visit. NULL = not yet answered.';
+
+-- Sales reps have SELECT/INSERT on their own attendance rows
+-- (sales_read_own_attendance / sales_insert_own_attendance in
+-- 002_rls_policies.sql) but no UPDATE policy, so a bare
+-- `.update()` from the client would be rejected by RLS. Following the
+-- same pattern as submit_attendance / request_spin /
+-- update_store_visit_details: a SECURITY DEFINER RPC that only ever
+-- touches this one column, and only on a row the caller owns.
+CREATE OR REPLACE FUNCTION public.confirm_attendance_order(
+  p_attendance_id UUID,
+  p_order_confirmed BOOLEAN
+)
+RETURNS public.attendance
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_sales_id UUID;
+  v_attendance public.attendance;
+BEGIN
+  v_sales_id := auth.uid();
+  IF v_sales_id IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated';
+  END IF;
+
+  IF p_order_confirmed IS NULL THEN
+    RAISE EXCEPTION 'order_confirmed must be true or false';
+  END IF;
+
+  UPDATE public.attendance
+  SET order_confirmed = p_order_confirmed
+  WHERE id = p_attendance_id
+    AND sales_id = v_sales_id
+    AND status = 'approved'
+  RETURNING * INTO v_attendance;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'No approved attendance found for this sales user';
+  END IF;
+
+  INSERT INTO public.audit_logs (sales_id, action, store_id, metadata)
+  VALUES (
+    v_sales_id,
+    CASE WHEN p_order_confirmed THEN 'ORDER_CONFIRMED_YES' ELSE 'ORDER_CONFIRMED_NO' END,
+    v_attendance.store_id,
+    jsonb_build_object('attendance_id', p_attendance_id)
+  );
+
+  RETURN v_attendance;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.confirm_attendance_order(UUID, BOOLEAN) TO authenticated;
+
+-- Fix: confirm_attendance_order() (008_attendance_order_confirmation.sql)
+-- logs action 'ORDER_CONFIRMED_YES' / 'ORDER_CONFIRMED_NO', but neither
+-- value was ever added to the audit_logs.action CHECK constraint defined
+-- in 001_initial_schema.sql. Every call to confirm_attendance_order()
+-- fails with:
+--
+--   new row for relation "audit_logs" violates check constraint
+--   "audit_logs_action_check"
+--
+-- because the INSERT into audit_logs happens after the UPDATE to
+-- public.attendance but inside the same function body -- so the whole
+-- RPC rolls back and order_confirmed never gets saved, even though the
+-- error message only mentions audit_logs.
+--
+-- Postgres auto-names an inline CHECK on a plain column
+-- "<table>_<column>_check", so the existing constraint is
+-- audit_logs_action_check even though 001_initial_schema.sql never
+-- names it explicitly.
+
+ALTER TABLE public.audit_logs
+  DROP CONSTRAINT audit_logs_action_check;
+
+ALTER TABLE public.audit_logs
+  ADD CONSTRAINT audit_logs_action_check CHECK (action IN (
+    'LOGIN',
+    'ATTENDANCE_STARTED',
+    'GPS_REJECTED',
+    'CAMERA_CAPTURED',
+    'ATTENDANCE_SUBMITTED',
+    'ATTENDANCE_APPROVED',
+    'ATTENDANCE_REJECTED',
+    'SPIN_STARTED',
+    'SPIN_REJECTED',
+    'SPIN_COMPLETED',
+    'ORDER_CONFIRMED_YES',
+    'ORDER_CONFIRMED_NO'
+  ));

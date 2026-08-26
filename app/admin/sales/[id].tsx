@@ -19,8 +19,11 @@ import {
   View,
 } from 'react-native';
 
+import { LocationPathMap } from '@/src/components/LocationPathMap';
 import { ScreenContainer } from '@/src/components/ScreenContainer';
 import { supabase } from '@/src/lib/supabase';
+import { getLocationPath } from '@/src/services/locationService';
+import type { LocationPing } from '@/src/types';
 
 const ATTENDANCE_BUCKET =
   'attendance-photos';
@@ -611,6 +614,23 @@ export default function AdminSalesCalendarScreen() {
       null,
     );
 
+  const [locationPings, setLocationPings] =
+    useState<LocationPing[]>(
+      [],
+    );
+
+  const [
+    locationLoading,
+    setLocationLoading,
+  ] = useState(false);
+
+  const [
+    locationError,
+    setLocationError,
+  ] = useState<string | null>(
+    null,
+  );
+
   /*
    * ==============================================================
    * LOAD DATA
@@ -1025,6 +1045,84 @@ export default function AdminSalesCalendarScreen() {
       attendanceByDate,
       orderAttendanceIds,
     ]);
+
+  /*
+   * ==============================================================
+   * LOCATION PATH
+   * ==============================================================
+   *
+   * Independent of DEMO_MODE / demo attendance data above -- pings are
+   * always read from the real public.location_pings table via the
+   * get_location_path() RPC (009_location_pings.sql), which already
+   * restricts access to the rep themself or an admin and returns rows
+   * ordered by recorded_at.
+   *
+   * Until the ping-sending client code exists and the migration has
+   * been applied to Supabase, this will simply come back empty --
+   * handled below as "No location pings recorded for this day."
+   */
+
+  useEffect(() => {
+    if (
+      !modalVisible ||
+      !selectedDay ||
+      !salesId ||
+      selectedDay.status ===
+        'future'
+    ) {
+      setLocationPings([]);
+      setLocationError(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    const fetchLocationPath =
+      async () => {
+        setLocationLoading(true);
+        setLocationError(null);
+
+        try {
+          const pings =
+            await getLocationPath(
+              salesId,
+              selectedDay.dateKey,
+            );
+
+          if (!cancelled) {
+            setLocationPings(
+              pings,
+            );
+          }
+        } catch (err) {
+          if (!cancelled) {
+            setLocationPings([]);
+            setLocationError(
+              err instanceof
+                Error
+                ? err.message
+                : 'Failed to load location path',
+            );
+          }
+        } finally {
+          if (!cancelled) {
+            setLocationLoading(
+              false,
+            );
+          }
+        }
+      };
+
+    fetchLocationPath();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    modalVisible,
+    selectedDay,
+    salesId,
+  ]);
 
   /*
    * ==============================================================
@@ -1815,6 +1913,101 @@ export default function AdminSalesCalendarScreen() {
                 </Text>
               </Pressable>
             </View>
+
+            {/* Location path */}
+
+            {selectedDay &&
+              selectedDay.status !==
+                'future' && (
+                <View
+                  style={
+                    styles.locationCard
+                  }
+                >
+                  <Text
+                    style={
+                      styles.locationCardTitle
+                    }
+                  >
+                    Location Path
+                  </Text>
+
+                  {locationLoading ? (
+                    <ActivityIndicator
+                      color="#2563eb"
+                    />
+                  ) : locationError ? (
+                    <Text
+                      style={
+                        styles.locationCardEmptyText
+                      }
+                    >
+                      Couldn't load
+                      location data:{' '}
+                      {locationError}
+                    </Text>
+                  ) : locationPings.length ===
+                    0 ? (
+                    <Text
+                      style={
+                        styles.locationCardEmptyText
+                      }
+                    >
+                      No location
+                      pings recorded
+                      for this day.
+                    </Text>
+                  ) : (
+                    <>
+                      <LocationPathMap
+                        pings={
+                          locationPings
+                        }
+                      />
+
+                      <Text
+                        style={
+                          styles.locationCardSubtitle
+                        }
+                      >
+                        {
+                          locationPings.length
+                        }{' '}
+                        ping
+                        {locationPings.length ===
+                        1
+                          ? ''
+                          : 's'}{' '}
+                        ·{' '}
+                        {new Date(
+                          locationPings[0].recorded_at,
+                        ).toLocaleTimeString(
+                          [],
+                          {
+                            hour: '2-digit',
+                            minute:
+                              '2-digit',
+                          },
+                        )}{' '}
+                        –{' '}
+                        {new Date(
+                          locationPings[
+                            locationPings.length -
+                              1
+                          ].recorded_at,
+                        ).toLocaleTimeString(
+                          [],
+                          {
+                            hour: '2-digit',
+                            minute:
+                              '2-digit',
+                          },
+                        )}
+                      </Text>
+                    </>
+                  )}
+                </View>
+              )}
 
             {/* Future */}
 
@@ -2839,6 +3032,44 @@ const styles =
       justifyContent:
         'center',
       padding: 20,
+    },
+
+    /* =========================================================
+     * LOCATION PATH
+     * ========================================================= */
+
+    locationCard: {
+      backgroundColor:
+        '#f8fafc',
+      borderRadius: 12,
+      padding: 16,
+      marginBottom: 16,
+      borderWidth: 1,
+      borderColor:
+        '#e2e8f0',
+      alignItems:
+        'center',
+    },
+
+    locationCardTitle: {
+      fontSize: 14,
+      fontWeight: '700',
+      color: '#0f172a',
+      alignSelf:
+        'flex-start',
+      marginBottom: 10,
+    },
+
+    locationCardEmptyText: {
+      fontSize: 13,
+      color: '#64748b',
+      paddingVertical: 12,
+    },
+
+    locationCardSubtitle: {
+      fontSize: 12,
+      color: '#64748b',
+      marginTop: 8,
     },
 
     modalCard: {

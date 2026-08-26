@@ -1,8 +1,3 @@
-Library
-/
-admin_layout_edited.tsx
-
-
 import { Stack } from 'expo-router';
 
 export default function AdminLayout() {

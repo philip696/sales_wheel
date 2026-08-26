@@ -62,6 +62,21 @@ export interface Attendance {
   order_confirmed: boolean | null;
 }
 
+/*
+ * A single GPS ping from public.location_pings
+ * (supabase/migrations/009_location_pings.sql), as returned by the
+ * get_location_path() RPC.
+ */
+export interface LocationPing {
+  id: string;
+  sales_id: string;
+  latitude: number;
+  longitude: number;
+  accuracy: number | null;
+  recorded_at: string;
+  created_at: string;
+}
+
 export interface Reward {
   id: string;
   name: string;
