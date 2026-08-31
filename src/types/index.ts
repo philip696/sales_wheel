@@ -212,3 +212,12 @@ export interface AdminAttendanceRecord
    * and sales.reference_photo_path exists (see the draft migration in
    * supabase/migrations/006_face_verification_draft.sql).
    */
+export interface Event {
+  id: string;
+  name: string;
+  description: string | null;
+  status: EntityStatus;
+  starts_at: string | null;
+  ends_at: string | null;
+  created_at: string;
+}

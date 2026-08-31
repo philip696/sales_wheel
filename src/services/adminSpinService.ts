@@ -1,55 +1,12 @@
 import { supabase } from '@/src/lib/supabase';
 import type { SpinStatus } from '@/src/types';
 
-export interface StoreSpinSummary {
-  storeId: string;
-  storeName: string;
-  storeCode: string;
-  spinCount: number;
-}
-
-/**
- * Every store, with how many spins have ever happened there. Stores with
- * zero spins are still included (spinCount: 0) so an admin can see
- * inactivity, not just activity.
- */
-export async function listStoresWithSpinCounts(): Promise<StoreSpinSummary[]> {
-  const { data, error } = await supabase
-    .from('stores')
-    .select('id, name, store_code, spins(count)')
-    .order('name', { ascending: true });
-
-  if (error) {
-    throw new Error(error.message);
-  }
-
-  type Row = {
-    id: string;
-    name: string;
-    store_code: string;
-    spins: { count: number }[] | null;
-  };
-
-  // The hand-maintained Database type file (src/types/database.ts) leaves
-  // every table's `Relationships` array empty, so TypeScript can't confirm
-  // this embed against a real foreign key even though `spins.store_id`
-  // does reference `stores.id` in the actual schema — PostgREST resolves
-  // it fine at runtime. Route through `unknown` to bypass the stale
-  // static check rather than the query itself.
-  return ((data ?? []) as unknown as Row[])
-    .map((row) => ({
-      storeId: row.id,
-      storeName: row.name,
-      storeCode: row.store_code,
-      spinCount: row.spins?.[0]?.count ?? 0,
-    }))
-    .sort((a, b) => b.spinCount - a.spinCount);
-}
-
 export interface StoreSpinEntry {
   id: string;
   salesName: string;
   salesCode: string;
+  storeName: string | null;
+  storeCode: string | null;
   rewardName: string | null;
   rewardValue: string | null;
   status: SpinStatus;
@@ -58,11 +15,13 @@ export interface StoreSpinEntry {
 }
 
 /**
- * Full spin history for one store — who spun, what they won, and when —
- * newest first.
+ * Full spin history for one event -- who spun, at which store, what they
+ * won, and when -- newest first. Relies on spins.event_id, which is only
+ * populated for spins made after the events feature shipped; older spins
+ * won't show up here.
  */
-export async function getSpinsForStore(
-  storeId: string
+export async function getSpinsForEvent(
+  eventId: string
 ): Promise<StoreSpinEntry[]> {
   const { data, error } = await supabase
     .from('spins')
@@ -73,10 +32,11 @@ export async function getSpinsForStore(
       spin_date,
       created_at,
       sales:sales_id (name, sales_code),
+      store:store_id (name, store_code),
       reward:reward_id (name, value)
     `
     )
-    .eq('store_id', storeId)
+    .eq('event_id', eventId)
     .order('created_at', { ascending: false });
 
   if (error) {
@@ -89,6 +49,7 @@ export async function getSpinsForStore(
     spin_date: string;
     created_at: string;
     sales: { name: string; sales_code: string } | null;
+    store: { name: string; store_code: string } | null;
     reward: { name: string; value: string } | null;
   };
 
@@ -96,6 +57,8 @@ export async function getSpinsForStore(
     id: row.id,
     salesName: row.sales?.name ?? 'Unknown sales rep',
     salesCode: row.sales?.sales_code ?? '—',
+    storeName: row.store?.name ?? null,
+    storeCode: row.store?.store_code ?? null,
     rewardName: row.reward?.name ?? null,
     rewardValue: row.reward?.value ?? null,
     status: row.status,

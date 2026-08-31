@@ -6,7 +6,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 const ADMIN_SECTIONS = [
   { title:'Attendance', description:'Monitor visits, GPS and photo evidence', shortLabel:'ATT', accent:'#2563eb', background:'#eff6ff', route:'/admin/attendance' },
   { title:'Sales Routes', description:'View each salesperson route by day', shortLabel:'ROUTE', accent:'#0891b2', background:'#ecfeff', route:'/admin/routes' },
-  { title:'Spin History', description:'Review rewards and sales activity', shortLabel:'SPIN', accent:'#7c3aed', background:'#f5f3ff', route:'/admin/spins' },
+  { title:'Events', description:'Review rewards and sales activity', shortLabel:'EVENT', accent:'#7c3aed', background:'#f5f3ff', route:'/admin/events' },
   { title:'Stores', description:'Manage registered store locations', shortLabel:'STORE', accent:'#059669', background:'#ecfdf5', route:'/admin/stores' },
   { title:'Sales Team', description:'Manage sales representatives', shortLabel:'TEAM', accent:'#ea580c', background:'#fff7ed', route:'/admin/sales' },
   { title:'Rewards', description:'Configure rewards and probabilities', shortLabel:'REWARD', accent:'#db2777', background:'#fdf2f8', route:'/admin/rewards' },

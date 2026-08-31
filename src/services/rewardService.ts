@@ -12,10 +12,12 @@ export interface RewardInput {
   status: EntityStatus;
 }
 
-export async function listRewards(): Promise<Reward[]> {
+/** All rewards belonging to a single event. */
+export async function listRewardsForEvent(eventId: string): Promise<Reward[]> {
   const { data, error } = await supabase
     .from('rewards')
     .select('*')
+    .eq('event_id', eventId)
     .order('created_at', { ascending: false });
 
   if (error) {
@@ -26,16 +28,17 @@ export async function listRewards(): Promise<Reward[]> {
 }
 
 /**
- * Active rewards only, ordered by probability descending — used by the
- * sales-facing spin wheel to render its slices. RLS already restricts
- * non-admins to active rewards regardless, but filtering explicitly here
- * keeps this call site's intent clear and avoids depending on that as the
- * only enforcement.
+ * Active rewards for one event, ordered by probability descending -- used
+ * by the sales-facing spin wheel to render its slices. RLS already
+ * restricts non-admins to active rewards regardless, but filtering
+ * explicitly here keeps this call site's intent clear and avoids depending
+ * on that as the only enforcement.
  */
-export async function listActiveRewards(): Promise<Reward[]> {
+export async function listActiveRewardsForEvent(eventId: string): Promise<Reward[]> {
   const { data, error } = await supabase
     .from('rewards')
     .select('*')
+    .eq('event_id', eventId)
     .eq('status', 'active')
     .order('probability', { ascending: false });
 
@@ -55,10 +58,13 @@ function normalizeRewardInput(input: RewardInput) {
   };
 }
 
-export async function createReward(input: RewardInput): Promise<Reward> {
+export async function createReward(
+  eventId: string,
+  input: RewardInput
+): Promise<Reward> {
   const { data, error } = await supabase
     .from('rewards')
-    .insert(normalizeRewardInput(input))
+    .insert({ ...normalizeRewardInput(input), event_id: eventId })
     .select('*')
     .single();
 
@@ -107,7 +113,7 @@ export async function setRewardStatus(
 
 /**
  * Thrown by `deleteReward` when the reward has already been won by someone
- * — `spins.reward_id` references rewards, but with ON DELETE SET NULL, so
+ * -- `spins.reward_id` references rewards, but with ON DELETE SET NULL, so
  * a delete never actually fails at the database level. This error type is
  * kept for symmetry with storeService/consistency, but in practice
  * `deleteReward` should always succeed.
