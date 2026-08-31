@@ -1,0 +1,113 @@
+-- Make request_spin event-aware: reward selection is now scoped to the
+-- event the spin was requested under, and the spin records which event it
+-- belongs to (so admin/events/[eventId]/history.tsx can show it even if no
+-- reward was won).
+--
+-- NOTE: as of this migration, app/(sales)/spin/index.tsx calls a
+-- `submit_rewards` RPC that does not exist in the database (a pre-existing
+-- bug, unrelated to this change) -- it should be calling `request_spin`.
+-- Event history will stay empty until that call site is fixed to invoke
+-- `request_spin` with a p_event_id.
+
+-- Drop the old 4-arg signature first -- Postgres treats a different
+-- parameter list as an overload, not a replacement, and we don't want both
+-- versions callable.
+DROP FUNCTION IF EXISTS public.request_spin(UUID, UUID, DOUBLE PRECISION, DOUBLE PRECISION);
+
+CREATE OR REPLACE FUNCTION public.request_spin(
+  p_attendance_id UUID,
+  p_store_id UUID,
+  p_latitude DOUBLE PRECISION,
+  p_longitude DOUBLE PRECISION,
+  p_event_id UUID
+)
+RETURNS TABLE (
+  spin_id UUID,
+  status TEXT,
+  reward_id UUID,
+  reward_name TEXT,
+  reward_value TEXT,
+  rejection_reason TEXT
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_sales_id UUID;
+  v_attendance RECORD;
+  v_spin_id UUID;
+  v_reward RECORD;
+  v_random NUMERIC;
+  v_cumulative NUMERIC := 0;
+  v_today DATE := CURRENT_DATE;
+BEGIN
+  v_sales_id := auth.uid();
+  IF v_sales_id IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated';
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM public.events WHERE id = p_event_id AND status = 'active') THEN
+    RETURN QUERY SELECT NULL::UUID, 'rejected'::TEXT, NULL::UUID, NULL::TEXT, NULL::TEXT,
+      'Event is not active'::TEXT;
+    RETURN;
+  END IF;
+
+  SELECT * INTO v_attendance
+  FROM public.attendance
+  WHERE id = p_attendance_id
+    AND sales_id = v_sales_id
+    AND store_id = p_store_id
+    AND status = 'approved';
+
+  IF NOT FOUND THEN
+    RETURN QUERY SELECT NULL::UUID, 'rejected'::TEXT, NULL::UUID, NULL::TEXT, NULL::TEXT,
+      'No approved attendance found for this store'::TEXT;
+    RETURN;
+  END IF;
+
+  -- Attempt insert with unique constraint for one spin per store per day
+  BEGIN
+    INSERT INTO public.spins (sales_id, store_id, attendance_id, latitude, longitude, spin_date, status, event_id)
+    VALUES (v_sales_id, p_store_id, p_attendance_id, p_latitude, p_longitude, v_today, 'pending', p_event_id)
+    RETURNING id INTO v_spin_id;
+  EXCEPTION WHEN unique_violation THEN
+    RETURN QUERY SELECT NULL::UUID, 'rejected'::TEXT, NULL::UUID, NULL::TEXT, NULL::TEXT,
+      'Already spun at this store today'::TEXT;
+    RETURN;
+  END;
+
+  -- Weighted random reward selection (server-side), scoped to this event
+  v_random := random();
+  FOR v_reward IN
+    SELECT * FROM public.rewards
+    WHERE status = 'active' AND event_id = p_event_id
+    ORDER BY probability DESC
+  LOOP
+    v_cumulative := v_cumulative + v_reward.probability;
+    IF v_random <= v_cumulative THEN
+      UPDATE public.spins
+      SET reward_id = v_reward.id, status = 'completed'
+      WHERE id = v_spin_id;
+
+      INSERT INTO public.audit_logs (sales_id, action, store_id, metadata)
+      VALUES (v_sales_id, 'SPIN_COMPLETED', p_store_id,
+        jsonb_build_object('spin_id', v_spin_id, 'reward_id', v_reward.id, 'event_id', p_event_id));
+
+      RETURN QUERY SELECT v_spin_id, 'completed'::TEXT, v_reward.id, v_reward.name, v_reward.value, NULL::TEXT;
+      RETURN;
+    END IF;
+  END LOOP;
+
+  -- No reward matched (probabilities don't sum to 1 for this event)
+  UPDATE public.spins SET status = 'completed', reward_id = NULL WHERE id = v_spin_id;
+
+  INSERT INTO public.audit_logs (sales_id, action, store_id, metadata)
+  VALUES (v_sales_id, 'SPIN_COMPLETED', p_store_id,
+    jsonb_build_object('spin_id', v_spin_id, 'reward_id', NULL, 'event_id', p_event_id));
+
+  RETURN QUERY SELECT v_spin_id, 'completed'::TEXT, NULL::UUID, 'No Reward'::TEXT, '0'::TEXT, NULL::TEXT;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.request_spin TO authenticated;
