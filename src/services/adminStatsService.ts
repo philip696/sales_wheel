@@ -203,6 +203,7 @@ export async function getAdminDashboardStats(): Promise<AdminDashboardStats> {
         store_id,
         created_at,
         status,
+        order_confirmed,
         sales:sales_id (
           id,
           name,
@@ -241,91 +242,31 @@ export async function getAdminDashboardStats(): Promise<AdminDashboardStats> {
 
   /*
    * ==========================================================
-   * LOAD TODAY'S ORDERS
-   * ==========================================================
-   *
-   * Existing relationship:
-   *
-   * spins.attendance_id
-   *       ↓
-   * attendance.id
-   *
-   * So we first get today's attendance IDs, then ask for spins
-   * belonging to those visits.
-   */
-
-  const attendanceIds =
-    (attendance ?? [])
-      .map(
-        (
-          record
-        ) =>
-          record.id
-      )
-      .filter(
-        (
-          id
-        ): id is string =>
-          typeof id ===
-            'string' &&
-          id.length >
-            0
-      );
-
-  let spins: {
-    id: string;
-    attendance_id:
-      | string
-      | null;
-  }[] = [];
-
-  if (
-    attendanceIds.length >
-    0
-  ) {
-    const {
-      data,
-      error,
-    } =
-      await supabase
-        .from('spins')
-        .select(
-          `
-          id,
-          attendance_id
-          `
-        )
-        .in(
-          'attendance_id',
-          attendanceIds
-        );
-
-    if (
-      error
-    ) {
-      throw new Error(
-        `Could not load today's orders: ${error.message}`
-      );
-    }
-
-    spins =
-      (data ?? []) as typeof spins;
-  }
-
-  /*
-   * ==========================================================
    * ORDER LOOKUP
    * ==========================================================
+   *
+   * "Order" means attendance.order_confirmed === true -- not
+   * whether a spin exists. A visit can be order_confirmed
+   * without ever reaching the spin step, so this reads the flag
+   * directly off today's attendance rows instead of joining
+   * through spins.attendance_id.
    */
 
   const orderedAttendanceIds =
     new Set(
-      spins
+      (attendance ?? [])
+        .filter(
+          (
+            record
+          ) =>
+            record.order_confirmed ===
+            true
+        )
         .map(
           (
-            spin
+            record
           ) =>
-            spin.attendance_id
+            record.id
         )
         .filter(
           (
@@ -403,6 +344,10 @@ export async function getAdminDashboardStats(): Promise<AdminDashboardStats> {
 
       status:
         | string
+        | null;
+
+      order_confirmed:
+        | boolean
         | null;
 
       sales:
