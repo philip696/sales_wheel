@@ -1,8 +1,6 @@
 // app/(sales)/index.tsx
 
-import {
-  router,
-} from 'expo-router';
+import { router } from 'expo-router';
 
 import {
   useCallback,
@@ -21,42 +19,29 @@ import {
   View,
 } from 'react-native';
 
-import {
-  PrimaryButton,
-} from '@/src/components/PrimaryButton';
+import { PrimaryButton } from '@/src/components/PrimaryButton';
+import { ScreenContainer } from '@/src/components/ScreenContainer';
 
-import {
-  ScreenContainer,
-} from '@/src/components/ScreenContainer';
+import { useAttendanceFlow } from '@/src/features/attendance/AttendanceFlowContext';
+import { useAuth } from '@/src/features/auth/useAuth';
 
-import {
-  useAttendanceFlow,
-} from '@/src/features/attendance/AttendanceFlowContext';
-
-import {
-  useAuth,
-} from '@/src/features/auth/useAuth';
-
-import {
-  supabase,
-} from '@/src/lib/supabase';
+import { supabase } from '@/src/lib/supabase';
 
 import {
   getRewardMode,
-} from '@/src/services/rewardModeService';
+} from '@/src/services/rewardService';
 
 /*
  * ============================================================
- * DEMO CONFIG
+ * CONFIG
  * ============================================================
  *
- * If the backend has no attendance data for today, the app
- * uses the demo route below so the client presentation still
- * has a populated dashboard.
+ * No fake dashboard data.
+ *
+ * Everything below is read from Supabase.
  */
 
-const USE_DEMO_FALLBACK =
-  true;
+const REFRESH_INTERVAL = 30000;
 
 /*
  * ============================================================
@@ -70,6 +55,8 @@ type RouteVisit = {
   storeId: string | null;
 
   storeName: string;
+
+  storeCode: string | null;
 
   time: string;
 
@@ -87,187 +74,8 @@ type SalesDashboardData = {
 
   totalPlannedStops: number;
 
-  source: 'backend' | 'demo';
+  source: 'backend';
 };
-
-/*
- * ============================================================
- * DEMO DATA
- * ============================================================
- *
- * This matches the populated Sales Home presentation you
- * showed in the screen recording.
- */
-
-const DEMO_ROUTE: RouteVisit[] = [
-  {
-    id: 'demo-001',
-
-    storeId: 'demo-store-001',
-
-    storeName:
-      'Toko Sumber Jaya',
-
-    time: '08:14',
-
-    orderPlaced: true,
-
-    latitude:
-      -7.2575,
-
-    longitude:
-      112.7521,
-
-    status: 'approved',
-  },
-
-  {
-    id: 'demo-002',
-
-    storeId: 'demo-store-002',
-
-    storeName:
-      'ABC Stationery',
-
-    time: '09:02',
-
-    orderPlaced: true,
-
-    latitude:
-      -7.2591,
-
-    longitude:
-      112.7542,
-
-    status: 'approved',
-  },
-
-  {
-    id: 'demo-003',
-
-    storeId: 'demo-store-003',
-
-    storeName:
-      'Maju Makmur',
-
-    time: '09:51',
-
-    orderPlaced: false,
-
-    latitude:
-      -7.2613,
-
-    longitude:
-      112.7584,
-
-    status: 'approved',
-  },
-
-  {
-    id: 'demo-004',
-
-    storeId: 'demo-store-004',
-
-    storeName:
-      'Coffee Corner',
-
-    time: '11:03',
-
-    orderPlaced: false,
-
-    latitude:
-      -7.2648,
-
-    longitude:
-      112.7627,
-
-    status: 'planned',
-  },
-
-  {
-    id: 'demo-005',
-
-    storeId: 'demo-store-005',
-
-    storeName:
-      'Prima Jaya',
-
-    time: '14:32',
-
-    orderPlaced: false,
-
-    latitude:
-      -7.2672,
-
-    longitude:
-      112.7661,
-
-    status: 'planned',
-  },
-
-  {
-    id: 'demo-006',
-
-    storeId: 'demo-store-006',
-
-    storeName:
-      'Central Stationery',
-
-    time: '15:24',
-
-    orderPlaced: false,
-
-    latitude:
-      -7.2695,
-
-    longitude:
-      112.7698,
-
-    status: 'planned',
-  },
-
-  {
-    id: 'demo-007',
-
-    storeId: 'demo-store-007',
-
-    storeName:
-      'Sinar Baru',
-
-    time: '16:05',
-
-    orderPlaced: false,
-
-    latitude:
-      -7.2721,
-
-    longitude:
-      112.7724,
-
-    status: 'planned',
-  },
-
-  {
-    id: 'demo-008',
-
-    storeId: 'demo-store-008',
-
-    storeName:
-      'Mitra Dagang',
-
-    time: '16:42',
-
-    orderPlaced: false,
-
-    latitude:
-      -7.2742,
-
-    longitude:
-      112.7758,
-
-    status: 'planned',
-  },
-];
 
 /*
  * ============================================================
@@ -277,7 +85,7 @@ const DEMO_ROUTE: RouteVisit[] = [
 
 function getDateKey(
   date: Date
-) {
+): string {
   const year =
     date.getFullYear();
 
@@ -301,8 +109,14 @@ function getDateKey(
 }
 
 function formatTime(
-  value: string
-) {
+  value:
+    | string
+    | null
+): string {
+  if (!value) {
+    return '—';
+  }
+
   const date =
     new Date(value);
 
@@ -325,7 +139,7 @@ function formatTime(
 
 /*
  * ============================================================
- * BACKEND DATA
+ * LOAD SALES DASHBOARD
  * ============================================================
  */
 
@@ -336,9 +150,6 @@ async function loadBackendDashboard(
    * ----------------------------------------------------------
    * SALES PROFILE
    * ----------------------------------------------------------
-   *
-   * Current project structure uses the authenticated user's
-   * ID as the sales profile ID.
    */
 
   const {
@@ -351,7 +162,6 @@ async function loadBackendDashboard(
         `
         id,
         name,
-        email,
         sales_code
         `
       )
@@ -416,7 +226,8 @@ async function loadBackendDashboard(
 
   const {
     data: attendance,
-    error: attendanceError,
+    error:
+      attendanceError,
   } =
     await supabase
       .from('attendance')
@@ -428,11 +239,7 @@ async function loadBackendDashboard(
         latitude,
         longitude,
         status,
-        created_at,
-        store:store_id (
-          id,
-          name
-        )
+        created_at
         `
       )
       .eq(
@@ -459,8 +266,100 @@ async function loadBackendDashboard(
     attendanceError
   ) {
     throw new Error(
-      `Could not load today's attendance: ${attendanceError.message}`
+      `Could not load today's visits: ${attendanceError.message}`
     );
+  }
+
+  /*
+   * ----------------------------------------------------------
+   * STORE DATA
+   * ----------------------------------------------------------
+   */
+
+  const attendanceRows =
+    attendance ?? [];
+
+  const storeIds =
+    Array.from(
+      new Set(
+        attendanceRows
+          .map(
+            (
+              row
+            ) =>
+              row.store_id
+          )
+          .filter(
+            (
+              id
+            ): id is string =>
+              typeof id ===
+                'string' &&
+              id.length >
+                0
+          )
+      )
+    );
+
+  const storeMap =
+    new Map<
+      string,
+      {
+        name: string;
+        storeCode:
+          | string
+          | null;
+      }
+    >();
+
+  if (
+    storeIds.length >
+    0
+  ) {
+    const {
+      data: stores,
+      error:
+        storesError,
+    } =
+      await supabase
+        .from('stores')
+        .select(
+          `
+          id,
+          name,
+          store_code
+          `
+        )
+        .in(
+          'id',
+          storeIds
+        );
+
+    if (
+      storesError
+    ) {
+      throw new Error(
+        `Could not load stores: ${storesError.message}`
+      );
+    }
+
+    for (
+      const store of
+        stores ?? []
+    ) {
+      storeMap.set(
+        store.id,
+        {
+          name:
+            store.name ??
+            'Unknown Store',
+
+          storeCode:
+            store.store_code ??
+            null,
+        }
+      );
+    }
   }
 
   /*
@@ -468,167 +367,152 @@ async function loadBackendDashboard(
    * SPINS / ORDERS
    * ----------------------------------------------------------
    *
-   * Existing project relationship:
+   * Existing relationship:
    *
    * spins.attendance_id
    *        ↓
    * attendance.id
    *
-   * This is how previous history code determined that a visit
-   * resulted in an order.
+   * A visit is considered an order visit when a spin exists
+   * for that attendance record.
    */
 
-  const {
-    data: spins,
-    error: spinsError,
-  } =
-    await supabase
-      .from('spins')
-      .select(
-        `
-        id,
-        attendance_id
-        `
-      )
-      .eq(
-        'sales_id',
-        sales.id
-      );
+  const attendanceIds =
+    attendanceRows.map(
+      (
+        row
+      ) =>
+        row.id
+    );
+
+  const orderAttendanceIds =
+    new Set<string>();
 
   if (
-    spinsError
+    attendanceIds.length >
+    0
   ) {
-    throw new Error(
-      `Could not load today's order information: ${spinsError.message}`
-    );
+    const {
+      data: spins,
+      error:
+        spinsError,
+    } =
+      await supabase
+        .from('spins')
+        .select(
+          `
+          id,
+          attendance_id
+          `
+        )
+        .in(
+          'attendance_id',
+          attendanceIds
+        );
+
+    if (
+      spinsError
+    ) {
+      throw new Error(
+        `Could not load order activity: ${spinsError.message}`
+      );
+    }
+
+    for (
+      const spin of
+        spins ?? []
+    ) {
+      if (
+        spin.attendance_id
+      ) {
+        orderAttendanceIds.add(
+          spin.attendance_id
+        );
+      }
+    }
   }
 
   /*
-   * Create a fast lookup for attendance records that have
-   * corresponding spins.
-   */
-
-  const orderAttendanceIds =
-    new Set(
-      (spins ?? [])
-        .map(
-          (
-            spin
-          ) =>
-            spin.attendance_id
-        )
-        .filter(
-          (
-            id
-          ): id is string =>
-            typeof id ===
-              'string' &&
-            id.length >
-              0
-        )
-    );
-
-  /*
    * ----------------------------------------------------------
-   * MAP TO DASHBOARD
+   * BUILD VISITS
    * ----------------------------------------------------------
    */
-
-  type AttendanceRow =
-    {
-      id: string;
-
-      store_id:
-        | string
-        | null;
-
-      latitude:
-        | number
-        | null;
-
-      longitude:
-        | number
-        | null;
-
-      status:
-        | string
-        | null;
-
-      created_at:
-        | string
-        | null;
-
-      store:
-        | {
-            id: string;
-
-            name: string;
-          }
-        | null;
-    };
-
-  const rows =
-    (attendance ??
-      []) as unknown as AttendanceRow[];
 
   const visits:
     RouteVisit[] =
-    rows.map(
+    attendanceRows.map(
       (
         row
-      ) => ({
-        id:
-          row.id,
-
-        storeId:
-          row.store?.id ??
-          row.store_id ??
-          null,
-
-        storeName:
-          row.store?.name ??
-          'Store visit',
-
-        time:
-          row.created_at
-            ? formatTime(
-                row.created_at
+      ) => {
+        const store =
+          row.store_id
+            ? storeMap.get(
+                row.store_id
               )
-            : '—',
+            : undefined;
 
-        orderPlaced:
-          orderAttendanceIds.has(
-            row.id
-          ),
+        return {
+          id:
+            row.id,
 
-        latitude:
-          row.latitude,
+          storeId:
+            row.store_id ??
+            null,
 
-        longitude:
-          row.longitude,
+          storeName:
+            store?.name ??
+            'Unknown Store',
 
-        status:
-          row.status,
-      })
+          storeCode:
+            store?.storeCode ??
+            null,
+
+          time:
+            formatTime(
+              row.created_at
+            ),
+
+          orderPlaced:
+            orderAttendanceIds.has(
+              row.id
+            ),
+
+          latitude:
+            row.latitude,
+
+          longitude:
+            row.longitude,
+
+          status:
+            row.status ??
+            null,
+
+          /*
+           * This is the attendance GPS/store distance if your
+           * current query exposes it later.
+           *
+           * For now we keep the dashboard focused on actual
+           * attendance/order data.
+           */
+        } as RouteVisit;
+      }
     );
 
   /*
-   * If the backend has real data, use the real attendance
-   * count as the completed count.
+   * ----------------------------------------------------------
+   * RETURN
+   * ----------------------------------------------------------
    *
-   * Planned stop count is not currently stored in the
-   * attendance table, so the demo uses 8 when real route
-   * planning data isn't available.
+   * The current database does not contain a route-planning
+   * table in this screen, so the planned stop count is the
+   * number of actual visits recorded today.
    */
 
   return {
     visits,
 
     totalPlannedStops:
-      Math.max(
-        visits.length,
-        8
-      ),
+      visits.length,
 
     source:
       'backend',
@@ -637,27 +521,7 @@ async function loadBackendDashboard(
 
 /*
  * ============================================================
- * DEMO DATA LOADER
- * ============================================================
- */
-
-function getDemoDashboard():
-  SalesDashboardData {
-  return {
-    visits:
-      DEMO_ROUTE,
-
-    totalPlannedStops:
-      DEMO_ROUTE.length,
-
-    source:
-      'demo',
-  };
-}
-
-/*
- * ============================================================
- * MAIN SCREEN
+ * SALES HOME
  * ============================================================
  */
 
@@ -665,7 +529,8 @@ export default function SalesHomeScreen() {
   const {
     profile,
     signOut,
-  } = useAuth();
+  } =
+    useAuth();
 
   const {
     selectedStore,
@@ -676,9 +541,9 @@ export default function SalesHomeScreen() {
     useAttendanceFlow();
 
   /*
-   * ----------------------------------------------------------
+   * ==========================================================
    * REWARD MODE
-   * ----------------------------------------------------------
+   * ==========================================================
    */
 
   const [
@@ -694,9 +559,9 @@ export default function SalesHomeScreen() {
     useState(true);
 
   /*
-   * ----------------------------------------------------------
-   * DASHBOARD DATA
-   * ----------------------------------------------------------
+   * ==========================================================
+   * DASHBOARD
+   * ==========================================================
    */
 
   const [
@@ -756,6 +621,10 @@ export default function SalesHomeScreen() {
     useCallback(
       async () => {
         try {
+          setRewardModeLoading(
+            true
+          );
+
           const mode =
             await getRewardMode();
 
@@ -763,16 +632,16 @@ export default function SalesHomeScreen() {
             mode.enabled
           );
         } catch (
-          loadError
+          rewardError
         ) {
           console.warn(
-            'SALES REWARD MODE ERROR:',
-            loadError
+            'SALES HOME REWARD MODE ERROR:',
+            rewardError
           );
 
           /*
-           * Keep rewards available if the frontend
-           * local setting cannot be read.
+           * Keep the sales screen usable if the reward event
+           * cannot be loaded.
            */
           setRewardEnabled(
             true
@@ -795,111 +664,56 @@ export default function SalesHomeScreen() {
   const loadDashboard =
     useCallback(
       async (
-        isRefresh =
-          false
+        isRefresh = false
       ) => {
         if (
-          !profile
+          !profile?.id
         ) {
           return;
         }
 
-        if (
-          isRefresh
-        ) {
-          setRefreshing(
-            true
-          );
-        } else {
-          setLoading(
-            true
-          );
-        }
-
-        setError(
-          null
-        );
-
         try {
-          /*
-           * ----------------------------------------------------
-           * REAL BACKEND
-           * ----------------------------------------------------
-           */
+          if (
+            isRefresh
+          ) {
+            setRefreshing(
+              true
+            );
+          } else {
+            setLoading(
+              true
+            );
+          }
 
-          const backendData =
+          setError(
+            null
+          );
+
+          const data =
             await loadBackendDashboard(
               profile.id
             );
 
-          /*
-           * If today's backend has data, display it.
-           */
-
-          if (
-            backendData.visits
-              .length >
-              0
-          ) {
-            setDashboard(
-              backendData
-            );
-
-            return;
-          }
-
-          /*
-           * ----------------------------------------------------
-           * DEMO FALLBACK
-           * ----------------------------------------------------
-           *
-           * This is useful for client presentation when
-           * the database currently has no visits today.
-           */
-
-          if (
-            USE_DEMO_FALLBACK
-          ) {
-            setDashboard(
-              getDemoDashboard()
-            );
-
-            return;
-          }
-
           setDashboard(
-            backendData
+            data
           );
         } catch (
-          loadError
+          dashboardError
         ) {
           console.error(
-            'SALES DASHBOARD ERROR:',
-            loadError
+            'SALES HOME DASHBOARD ERROR:',
+            dashboardError
           );
 
-          /*
-           * Keep the demo working even if the backend is
-           * currently unavailable.
-           */
+          setDashboard(
+            null
+          );
 
-          if (
-            USE_DEMO_FALLBACK
-          ) {
-            setDashboard(
-              getDemoDashboard()
-            );
-
-            setError(
-              'Showing demo activity because live data is currently unavailable.'
-            );
-          } else {
-            setError(
-              loadError instanceof Error
-                ? loadError.message
-                : 'Could not load your dashboard.'
-            );
-          }
+          setError(
+            dashboardError instanceof Error
+              ? dashboardError.message
+              : 'Could not load your dashboard.'
+          );
         } finally {
           setLoading(
             false
@@ -911,7 +725,7 @@ export default function SalesHomeScreen() {
         }
       },
       [
-        profile,
+        profile?.id,
       ]
     );
 
@@ -922,43 +736,152 @@ export default function SalesHomeScreen() {
    */
 
   useEffect(() => {
-    loadRewardMode();
+    if (
+      !profile?.id
+    ) {
+      return;
+    }
 
     loadDashboard();
+
+    loadRewardMode();
   }, [
-    loadRewardMode,
+    profile?.id,
     loadDashboard,
+    loadRewardMode,
   ]);
 
   /*
    * ==========================================================
-   * REFRESH
+   * AUTO REFRESH
    * ==========================================================
    */
 
-  const handleRefresh =
-    async () => {
-      await Promise.all([
-        loadRewardMode(),
-        loadDashboard(
-          true
-        ),
-      ]);
+  useEffect(() => {
+    const interval =
+      setInterval(
+        () => {
+          loadDashboard(
+            true
+          );
+
+          loadRewardMode();
+        },
+        REFRESH_INTERVAL
+      );
+
+    return () => {
+      clearInterval(
+        interval
+      );
     };
+  }, [
+    loadDashboard,
+    loadRewardMode,
+  ]);
 
   /*
    * ==========================================================
-   * WAIT FOR PROFILE
+   * FIRST NAME
+   * ==========================================================
+   */
+
+  const firstName =
+    useMemo(() => {
+      const name =
+        profile?.name?.trim();
+
+      if (
+        !name
+      ) {
+        return 'Sales';
+      }
+
+      return name.split(
+        ' '
+      )[0];
+    }, [
+      profile?.name,
+    ]);
+
+  /*
+   * ==========================================================
+   * DASHBOARD VALUES
+   * ==========================================================
+   */
+
+  const visits =
+    dashboard?.visits ??
+    [];
+
+  const totalStops =
+    dashboard?.totalPlannedStops ??
+    0;
+
+  const visitCount =
+    visits.length;
+
+  const orderCount =
+    visits.filter(
+      (
+        visit
+      ) =>
+        visit.orderPlaced
+    ).length;
+
+  const conversionRate =
+    visitCount >
+    0
+      ? (
+          (orderCount /
+            visitCount) *
+          100
+        ).toFixed(1)
+      : '0.0';
+
+  const remainingStops =
+    Math.max(
+      totalStops -
+        visitCount,
+      0
+    );
+
+  const selectedDate =
+    getDateKey(
+      new Date()
+    );
+
+  const routeVisits =
+    visits.filter(
+      (
+        visit
+      ) =>
+        visit.storeName
+    );
+
+  /*
+   * ==========================================================
+   * LOADING
    * ==========================================================
    */
 
   if (
-    !profile
+    !profile ||
+    loading &&
+      !dashboard
   ) {
     return (
       <ScreenContainer
-        title="Loading..."
-        subtitle="Preparing your dashboard"
+        title={
+          profile
+            ? `Hi, ${firstName}`
+            : 'Loading...'
+        }
+        subtitle={
+          profile
+            ? 'Your sales activity at a glance'
+            : 'Preparing your dashboard'
+        }
       >
         <View
           style={
@@ -975,7 +898,7 @@ export default function SalesHomeScreen() {
               styles.loadingTitle
             }
           >
-            Loading your account
+            Loading your sales dashboard
           </Text>
 
           <Text
@@ -983,7 +906,7 @@ export default function SalesHomeScreen() {
               styles.loadingText
             }
           >
-            Please wait...
+            Reading live data from Supabase...
           </Text>
         </View>
       </ScreenContainer>
@@ -1037,142 +960,6 @@ export default function SalesHomeScreen() {
 
   /*
    * ==========================================================
-   * FIRST NAME
-   * ==========================================================
-   */
-
-  const firstName =
-    useMemo(() => {
-      const name =
-        profile?.name?.trim();
-
-      if (
-        !name
-      ) {
-        return 'Sales';
-      }
-
-      return name.split(
-        ' '
-      )[0];
-    }, [
-      profile?.name,
-    ]);
-
-  /*
-   * ==========================================================
-   * DASHBOARD VALUES
-   * ==========================================================
-   */
-
-  const visits =
-    dashboard?.visits ??
-    [];
-
-  const totalPlannedStops =
-    dashboard?.totalPlannedStops ??
-    8;
-
-  const visitCount =
-    visits.length;
-
-  const orderCount =
-    visits.filter(
-      (
-        visit
-      ) =>
-        visit.orderPlaced
-    ).length;
-
-  const conversionRate =
-    visitCount > 0
-      ? (
-          (orderCount /
-            visitCount) *
-          100
-        ).toFixed(1)
-      : '0.0';
-
-  const remainingStops =
-    Math.max(
-      totalPlannedStops -
-        visitCount,
-      0
-    );
-
-  /*
-   * We show a maximum of five route entries in the compact
-   * preview.
-   */
-
-  const routePreview =
-    visits.slice(
-      0,
-      5
-    );
-
-  /*
-   * The first incomplete visit becomes the next stop.
-   */
-
-  const nextStop =
-    visits.find(
-      (
-        visit
-      ) =>
-        !visit.orderPlaced
-    ) ??
-    visits[
-      visitCount
-    ];
-
-  /*
-   * ==========================================================
-   * LOADING
-   * ==========================================================
-   */
-
-  if (
-    loading &&
-    !dashboard
-  ) {
-    return (
-      <ScreenContainer
-        title={`Hi, ${firstName}`}
-        subtitle="Loading your sales activity"
-      >
-        <View
-          style={
-            styles.loadingContainer
-          }
-        >
-          <ActivityIndicator
-            size="small"
-            color="#2563eb"
-          />
-
-          <Text
-            style={
-              styles.loadingTitle
-            }
-          >
-            Loading today's route
-          </Text>
-
-          <Text
-            style={
-              styles.loadingText
-            }
-          >
-            Preparing your field activity...
-          </Text>
-        </View>
-      </ScreenContainer>
-    );
-  }
-
-  /*
-   * ==========================================================
    * RENDER
    * ==========================================================
    */
@@ -1191,9 +978,13 @@ export default function SalesHomeScreen() {
             refreshing={
               refreshing
             }
-            onRefresh={
-              handleRefresh
-            }
+            onRefresh={() => {
+              loadDashboard(
+                true
+              );
+
+              loadRewardMode();
+            }}
           />
         }
         contentContainerStyle={
@@ -1243,7 +1034,7 @@ export default function SalesHomeScreen() {
                 Check in at a store and{' '}
                 {rewardEnabled
                   ? "unlock today's reward."
-                  : "complete today's route."}
+                  : "record today's order."}
               </Text>
             </View>
 
@@ -1317,54 +1108,68 @@ export default function SalesHomeScreen() {
         </View>
 
         {/* ====================================================
-         * DATA SOURCE
+         * REWARD STATUS
          * ==================================================== */}
 
-        {dashboard?.source ===
-        'demo' ? (
+        {!rewardModeLoading ? (
           <View
-            style={
-              styles.demoIndicator
-            }
+            style={[
+              styles.rewardBanner,
+              rewardEnabled
+                ? styles.rewardBannerOn
+                : styles.rewardBannerOff,
+            ]}
           >
             <View
-              style={
-                styles.demoIndicatorDot
-              }
-            />
+              style={[
+                styles.rewardBannerIcon,
+                rewardEnabled
+                  ? styles.rewardBannerIconOn
+                  : styles.rewardBannerIconOff,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.rewardBannerIconText,
+                  rewardEnabled
+                    ? styles.rewardBannerIconTextOn
+                    : styles.rewardBannerIconTextOff,
+                ]}
+              >
+                {rewardEnabled
+                  ? '✓'
+                  : '—'}
+              </Text>
+            </View>
 
-            <Text
+            <View
               style={
-                styles.demoIndicatorText
+                styles.rewardBannerContent
               }
             >
-              DEMO DATA
-            </Text>
+              <Text
+                style={[
+                  styles.rewardBannerTitle,
+                  rewardEnabled
+                    ? styles.rewardBannerTitleOn
+                    : styles.rewardBannerTitleOff,
+                ]}
+              >
+                {rewardEnabled
+                  ? 'REWARD SYSTEM ACTIVE'
+                  : 'REWARD SYSTEM PAUSED'}
+              </Text>
 
-            <Text
-              style={
-                styles.demoIndicatorHint
-              }
-            >
-              Live database activity will appear
-              automatically when available.
-            </Text>
-          </View>
-        ) : null}
-
-        {error ? (
-          <View
-            style={
-              styles.notice
-            }
-          >
-            <Text
-              style={
-                styles.noticeText
-              }
-            >
-              {error}
-            </Text>
+              <Text
+                style={
+                  styles.rewardBannerText
+                }
+              >
+                {rewardEnabled
+                  ? 'Orders can continue to the Spin Wheel.'
+                  : 'Orders are still recorded, but the reward step is skipped.'}
+              </Text>
+            </View>
           </View>
         ) : null}
 
@@ -1395,16 +1200,25 @@ export default function SalesHomeScreen() {
             </Text>
           </View>
 
-          <Text
+          <View
             style={
-              styles.progressDemo
+              styles.liveBadge
             }
           >
-            {dashboard?.source ===
-            'demo'
-              ? 'DEMO'
-              : 'LIVE'}
-          </Text>
+            <View
+              style={
+                styles.liveBadgeDot
+              }
+            />
+
+            <Text
+              style={
+                styles.liveBadgeText
+              }
+            >
+              LIVE
+            </Text>
+          </View>
         </View>
 
         <View
@@ -1436,7 +1250,9 @@ export default function SalesHomeScreen() {
                     styles.progressCount
                   }
                 >
-                  {visitCount}
+                  {
+                    visitCount
+                  }
                 </Text>
 
                 <Text
@@ -1445,7 +1261,7 @@ export default function SalesHomeScreen() {
                   }
                 >
                   {' '}
-                  / {totalPlannedStops}
+                  / {totalStops}
                 </Text>
               </View>
             </View>
@@ -1455,11 +1271,11 @@ export default function SalesHomeScreen() {
                 styles.progressPercent
               }
             >
-              {totalPlannedStops >
+              {totalStops >
               0
                 ? Math.round(
                     (visitCount /
-                      totalPlannedStops) *
+                      totalStops) *
                       100
                   )
                 : 0}
@@ -1476,15 +1292,17 @@ export default function SalesHomeScreen() {
               style={[
                 styles.progressFill,
                 {
-                  width: `${Math.min(
-                    (visitCount /
-                      Math.max(
-                        totalPlannedStops,
-                        1
-                      )) *
-                      100,
-                    100
-                  )}%`,
+                  width: `${
+                    totalStops >
+                    0
+                      ? Math.min(
+                          (visitCount /
+                            totalStops) *
+                            100,
+                          100
+                        )
+                      : 0
+                  }%`,
                 },
               ]}
             />
@@ -1505,7 +1323,9 @@ export default function SalesHomeScreen() {
                   styles.progressStatValue
                 }
               >
-                {orderCount}
+                {
+                  orderCount
+                }
               </Text>
 
               <Text
@@ -1527,7 +1347,10 @@ export default function SalesHomeScreen() {
                   styles.progressStatValue
                 }
               >
-                {conversionRate}%
+                {
+                  conversionRate
+                }
+                %
               </Text>
 
               <Text
@@ -1549,7 +1372,9 @@ export default function SalesHomeScreen() {
                   styles.progressStatValue
                 }
               >
-                {remainingStops}
+                {
+                  remainingStops
+                }
               </Text>
 
               <Text
@@ -1682,7 +1507,7 @@ export default function SalesHomeScreen() {
                 styles.actionSubtitle
               }
             >
-              Register a new location
+              Register a new customer
             </Text>
 
             <View
@@ -1728,21 +1553,13 @@ export default function SalesHomeScreen() {
             </Text>
           </View>
 
-          <Pressable
-            onPress={() =>
-              router.push(
-                '/(sales)/history'
-              )
+          <Text
+            style={
+              styles.routeLiveText
             }
           >
-            <Text
-              style={
-                styles.viewMapText
-              }
-            >
-              VIEW MAP →
-            </Text>
-          </Pressable>
+            {routeVisits.length} STOPS
+          </Text>
         </View>
 
         <View
@@ -1750,328 +1567,259 @@ export default function SalesHomeScreen() {
             styles.routeCard
           }
         >
-          {/* ROUTE SUMMARY */}
-
-          <View
-            style={
-              styles.routeSummary
-            }
-          >
+          {routeVisits.length ===
+          0 ? (
             <View
               style={
-                styles.routeSummaryIcon
-              }
-            >
-              <Text
-                style={
-                  styles.routeSummaryIconText
-                }
-              >
-                R
-              </Text>
-            </View>
-
-            <View
-              style={
-                styles.routeSummaryText
-              }
-            >
-              <Text
-                style={
-                  styles.routeSummaryTitle
-                }
-              >
-                {visitCount} of{' '}
-                {
-                  totalPlannedStops
-                }{' '}
-                stops completed
-              </Text>
-
-              <Text
-                style={
-                  styles.routeSummarySubtitle
-                }
-              >
-                {remainingStops >
-                0
-                  ? `${remainingStops} stops remaining`
-                  : 'Route completed'}
-              </Text>
-            </View>
-          </View>
-
-          {/* ROUTE TIMELINE */}
-
-          <View
-            style={
-              styles.timeline
-            }
-          >
-            {routePreview.map(
-              (
-                visit,
-                index
-              ) => {
-                const completed =
-                  index <
-                  visitCount;
-
-                const isLast =
-                  index ===
-                  routePreview.length -
-                    1;
-
-                return (
-                  <View
-                    key={
-                      visit.id
-                    }
-                    style={
-                      styles.timelineRow
-                    }
-                  >
-                    {/* LINE */}
-
-                    <View
-                      style={
-                        styles.timelineRail
-                      }
-                    >
-                      <View
-                        style={[
-                          styles.timelineDot,
-                          completed
-                            ? styles.timelineDotCompleted
-                            : styles.timelineDotUpcoming,
-                        ]}
-                      />
-
-                      {!isLast ? (
-                        <View
-                          style={[
-                            styles.timelineLine,
-                            completed
-                              ? styles.timelineLineCompleted
-                              : styles.timelineLineUpcoming,
-                          ]}
-                        />
-                      ) : null}
-                    </View>
-
-                    {/* CONTENT */}
-
-                    <View
-                      style={
-                        styles.timelineContent
-                      }
-                    >
-                      <View
-                        style={
-                          styles.timelineMain
-                        }
-                      >
-                        <Text
-                          style={
-                            styles.timelineStore
-                          }
-                          numberOfLines={
-                            1
-                          }
-                        >
-                          {
-                            visit.storeName
-                          }
-                        </Text>
-
-                        <Text
-                          style={
-                            styles.timelineTime
-                          }
-                        >
-                          {
-                            visit.time
-                          }
-                        </Text>
-                      </View>
-
-                      <Text
-                        style={
-                          styles.timelineMeta
-                        }
-                      >
-                        {visit.orderPlaced
-                          ? 'Order recorded'
-                          : completed
-                            ? 'Visit completed'
-                            : 'Upcoming stop'}
-                      </Text>
-                    </View>
-
-                    {/* STATUS */}
-
-                    <View
-                      style={
-                        styles.timelineStatus
-                      }
-                    >
-                      {visit.orderPlaced ? (
-                        <Text
-                          style={
-                            styles.timelineCheck
-                          }
-                        >
-                          ✓
-                        </Text>
-                      ) : completed ? (
-                        <Text
-                          style={
-                            styles.timelineVisited
-                          }
-                        >
-                          •
-                        </Text>
-                      ) : (
-                        <Text
-                          style={
-                            styles.timelineUpcoming
-                          }
-                        >
-                          ○
-                        </Text>
-                      )}
-                    </View>
-                  </View>
-                );
-              }
-            )}
-          </View>
-
-          {/* FULL ROUTE */}
-
-          <Pressable
-            style={
-              styles.fullRouteButton
-            }
-            onPress={() =>
-              router.push(
-                '/(sales)/history'
-              )
-            }
-          >
-            <Text
-              style={
-                styles.fullRouteButtonText
-              }
-            >
-              VIEW FULL ROUTE
-            </Text>
-
-            <Text
-              style={
-                styles.fullRouteArrow
-              }
-            >
-              →
-            </Text>
-          </Pressable>
-        </View>
-
-        {/* ====================================================
-         * NEXT STOP
-         * ==================================================== */}
-
-        {nextStop ? (
-          <>
-            <Text
-              style={
-                styles.sectionLabel
-              }
-            >
-              NEXT STOP
-            </Text>
-
-            <Pressable
-              style={({
-                pressed,
-              }) => [
-                styles.nextStopCard,
-                pressed &&
-                  styles.pressed,
-              ]}
-              onPress={() =>
-                router.push(
-                  '/(sales)/stores'
-                )
+                styles.emptyRoute
               }
             >
               <View
                 style={
-                  styles.nextStopIcon
+                  styles.emptyRouteIcon
                 }
               >
                 <Text
                   style={
-                    styles.nextStopIconText
+                    styles.emptyRouteIconText
+                  }
+                >
+                  —
+                </Text>
+              </View>
+
+              <Text
+                style={
+                  styles.emptyRouteTitle
+                }
+              >
+                No visits recorded today
+              </Text>
+
+              <Text
+                style={
+                  styles.emptyRouteText
+                }
+              >
+                Your completed store visits will
+                appear here automatically.
+              </Text>
+            </View>
+          ) : (
+            <>
+              <View
+                style={
+                  styles.routeSummary
+                }
+              >
+                <View
+                  style={
+                    styles.routeSummaryIcon
+                  }
+                >
+                  <Text
+                    style={
+                      styles.routeSummaryIconText
+                    }
+                  >
+                    R
+                  </Text>
+                </View>
+
+                <View
+                  style={
+                    styles.routeSummaryText
+                  }
+                >
+                  <Text
+                    style={
+                      styles.routeSummaryTitle
+                    }
+                  >
+                    {
+                      routeVisits.length
+                    }{' '}
+                    recorded stops
+                  </Text>
+
+                  <Text
+                    style={
+                      styles.routeSummarySubtitle
+                    }
+                  >
+                    Live attendance route for{' '}
+                    {
+                      selectedDate
+                    }
+                  </Text>
+                </View>
+              </View>
+
+              <View
+                style={
+                  styles.timeline
+                }
+              >
+                {routeVisits.map(
+                  (
+                    visit,
+                    index
+                  ) => {
+                    const last =
+                      index ===
+                      routeVisits.length -
+                        1;
+
+                    return (
+                      <View
+                        key={
+                          visit.id
+                        }
+                        style={
+                          styles.timelineRow
+                        }
+                      >
+                        <View
+                          style={
+                            styles.timelineRail
+                          }
+                        >
+                          <View
+                            style={[
+                              styles.timelineDot,
+                              visit.orderPlaced &&
+                                styles.timelineDotOrder,
+                            ]}
+                          />
+
+                          {!last ? (
+                            <View
+                              style={
+                                styles.timelineLine
+                              }
+                            />
+                          ) : null}
+                        </View>
+
+                        <View
+                          style={
+                            styles.timelineContent
+                          }
+                        >
+                          <View
+                            style={
+                              styles.timelineMain
+                            }
+                          >
+                            <View
+                              style={
+                                styles.timelineStoreContainer
+                              }
+                            >
+                              <Text
+                                style={
+                                  styles.timelineStore
+                                }
+                                numberOfLines={
+                                  2
+                                }
+                              >
+                                {
+                                  visit.storeName
+                                }
+                              </Text>
+
+                              {visit.storeCode ? (
+                                <Text
+                                  style={
+                                    styles.timelineCode
+                                  }
+                                >
+                                  {
+                                    visit.storeCode
+                                  }
+                                </Text>
+                              ) : null}
+                            </View>
+
+                            <Text
+                              style={
+                                styles.timelineTime
+                              }
+                            >
+                              {
+                                visit.time
+                              }
+                            </Text>
+                          </View>
+
+                          <View
+                            style={
+                              styles.timelineMetaRow
+                            }
+                          >
+                            <Text
+                              style={
+                                styles.timelineMeta
+                              }
+                            >
+                              {visit.orderPlaced
+                                ? 'Order recorded'
+                                : 'Visit recorded'}
+                            </Text>
+
+                            {visit.orderPlaced ? (
+                              <View
+                                style={
+                                  styles.orderMiniBadge
+                                }
+                              >
+                                <Text
+                                  style={
+                                    styles.orderMiniBadgeText
+                                  }
+                                >
+                                  ORDER
+                                </Text>
+                              </View>
+                            ) : null}
+                          </View>
+                        </View>
+                      </View>
+                    );
+                  }
+                )}
+              </View>
+
+              <Pressable
+                style={
+                  styles.fullRouteButton
+                }
+                onPress={() =>
+                  router.push(
+                    '/admin/routes'
+                  )
+                }
+              >
+                <Text
+                  style={
+                    styles.fullRouteButtonText
+                  }
+                >
+                  VIEW ROUTE
+                </Text>
+
+                <Text
+                  style={
+                    styles.fullRouteArrow
                   }
                 >
                   →
                 </Text>
-              </View>
-
-              <View
-                style={
-                  styles.nextStopContent
-                }
-              >
-                <Text
-                  style={
-                    styles.nextStopEyebrow
-                  }
-                >
-                  CONTINUE ROUTE
-                </Text>
-
-                <Text
-                  style={
-                    styles.nextStopTitle
-                  }
-                >
-                  {
-                    nextStop.storeName
-                  }
-                </Text>
-
-                <Text
-                  style={
-                    styles.nextStopText
-                  }
-                >
-                  {dashboard?.source ===
-                    'demo' &&
-                  nextStop.storeName ===
-                    'Maju Makmur'
-                    ? '2.4 km away • 6 min'
-                    : 'Next scheduled store visit'}
-                </Text>
-              </View>
-
-              <View
-                style={
-                  styles.nextStopBadge
-                }
-              >
-                <Text
-                  style={
-                    styles.nextStopBadgeText
-                  }
-                >
-                  GO
-                </Text>
-              </View>
-            </Pressable>
-          </>
-        ) : null}
+              </Pressable>
+            </>
+          )}
+        </View>
 
         {/* ====================================================
          * CURRENT VISIT
@@ -2274,6 +2022,8 @@ export default function SalesHomeScreen() {
                 </View>
               ) : null}
 
+              {/* REWARD ACTIVE */}
+
               {orderPlaced ===
                 true &&
               rewardEnabled &&
@@ -2291,6 +2041,8 @@ export default function SalesHomeScreen() {
                   }
                 />
               ) : null}
+
+              {/* REWARD OFF */}
 
               {orderPlaced ===
                 true &&
@@ -2335,11 +2087,14 @@ export default function SalesHomeScreen() {
                       }
                     >
                       Rewards are currently paused.
-                      Your order has still been recorded.
+                      Your order has still been
+                      recorded.
                     </Text>
                   </View>
                 </View>
               ) : null}
+
+              {/* COMPLETED */}
 
               {spinCompleted ? (
                 <View
@@ -2500,8 +2255,8 @@ export default function SalesHomeScreen() {
               styles.footerText
             }
           >
-            Attendance and rewards are securely
-            validated by the server.
+            Attendance, orders and rewards are
+            connected to the live database.
           </Text>
         </View>
       </ScrollView>
@@ -2526,34 +2281,31 @@ const styles =
      */
 
     loadingContainer: {
+      flex: 1,
       alignItems:
         'center',
-
       justifyContent:
         'center',
-
-      paddingVertical: 80,
+      paddingVertical:
+        80,
     },
 
     loadingTitle: {
       fontSize: 15,
-
       fontWeight:
         '900',
-
       color:
         '#111827',
-
       marginTop: 14,
-
       marginBottom: 5,
     },
 
     loadingText: {
-      fontSize: 11,
-
+      fontSize: 10,
       color:
         '#94a3b8',
+      textAlign:
+        'center',
     },
 
     /*
@@ -2563,13 +2315,9 @@ const styles =
     hero: {
       backgroundColor:
         '#171a38',
-
       borderRadius: 22,
-
       padding: 20,
-
-      marginBottom: 14,
-
+      marginBottom: 15,
       overflow:
         'hidden',
     },
@@ -2577,152 +2325,113 @@ const styles =
     heroTopRow: {
       flexDirection:
         'row',
-
       alignItems:
         'center',
     },
 
     heroText: {
       flex: 1,
-
       paddingRight: 12,
     },
 
     heroEyebrow: {
       fontSize: 8,
-
       fontWeight:
         '900',
-
       color:
         '#a5b4fc',
-
       letterSpacing:
         1.5,
-
       marginBottom: 6,
     },
 
     heroTitle: {
       fontSize: 23,
-
       lineHeight: 28,
-
       fontWeight:
         '900',
-
       color:
         '#ffffff',
-
-      letterSpacing:
-        -0.6,
     },
 
     heroSubtitle: {
       fontSize: 10,
-
       lineHeight: 16,
-
       color:
         '#d0d3e4',
-
       marginTop: 7,
     },
 
     heroOrb: {
-      width: 65,
-
-      height: 65,
-
-      borderRadius: 33,
-
+      width: 64,
+      height: 64,
+      borderRadius: 32,
       backgroundColor:
         '#2b315c',
-
       alignItems:
         'center',
-
       justifyContent:
         'center',
     },
 
     heroOrbInner: {
-      width: 45,
-
-      height: 45,
-
-      borderRadius: 23,
-
+      width: 44,
+      height: 44,
+      borderRadius: 22,
       backgroundColor:
         '#6d7df3',
-
       alignItems:
         'center',
-
       justifyContent:
         'center',
     },
 
     heroOrbText: {
       fontSize: 20,
-
       fontWeight:
         '900',
-
       color:
         '#ffffff',
     },
 
     heroDivider: {
       height: 1,
-
       backgroundColor:
         '#373b59',
-
       marginVertical: 17,
     },
 
     heroBottom: {
       flexDirection:
         'row',
-
       alignItems:
         'center',
-
       justifyContent:
         'space-between',
     },
 
     heroSmallLabel: {
       fontSize: 7,
-
       fontWeight:
         '900',
-
       color:
         '#8b91ad',
-
       letterSpacing:
         1.2,
-
       marginBottom: 3,
     },
 
     heroStatus: {
       fontSize: 11,
-
       fontWeight:
         '800',
-
       color:
         '#ffffff',
     },
 
     statusDot: {
       width: 9,
-
       height: 9,
-
       borderRadius: 5,
     },
 
@@ -2742,93 +2451,100 @@ const styles =
     },
 
     /*
-     * DEMO
+     * REWARD BANNER
      */
 
-    demoIndicator: {
+    rewardBanner: {
       flexDirection:
         'row',
-
       alignItems:
         'center',
+      borderRadius: 15,
+      padding: 11,
+      marginBottom: 22,
+    },
 
+    rewardBannerOn: {
       backgroundColor:
-        '#fffbeb',
-
+        '#f0fdf4',
       borderWidth: 1,
-
       borderColor:
-        '#fde68a',
-
-      borderRadius: 10,
-
-      paddingHorizontal: 9,
-
-      paddingVertical: 7,
-
-      marginBottom: 15,
+        '#bbf7d0',
     },
 
-    demoIndicatorDot: {
-      width: 6,
-
-      height: 6,
-
-      borderRadius: 3,
-
+    rewardBannerOff: {
       backgroundColor:
-        '#f59e0b',
-
-      marginRight: 6,
+        '#f8fafc',
+      borderWidth: 1,
+      borderColor:
+        '#e2e8f0',
     },
 
-    demoIndicatorText: {
-      fontSize: 6.5,
+    rewardBannerIcon: {
+      width: 31,
+      height: 31,
+      borderRadius: 10,
+      alignItems:
+        'center',
+      justifyContent:
+        'center',
+      marginRight: 9,
+    },
 
+    rewardBannerIconOn: {
+      backgroundColor:
+        '#dcfce7',
+    },
+
+    rewardBannerIconOff: {
+      backgroundColor:
+        '#e2e8f0',
+    },
+
+    rewardBannerIconText: {
+      fontSize: 14,
       fontWeight:
         '900',
+    },
 
+    rewardBannerIconTextOn: {
       color:
-        '#92400e',
+        '#16a34a',
+    },
 
+    rewardBannerIconTextOff: {
+      color:
+        '#64748b',
+    },
+
+    rewardBannerContent: {
+      flex: 1,
+    },
+
+    rewardBannerTitle: {
+      fontSize: 8,
+      fontWeight:
+        '900',
       letterSpacing:
         0.8,
-
-      marginRight: 6,
+      marginBottom: 2,
     },
 
-    demoIndicatorHint: {
-      flex: 1,
-
-      fontSize: 7,
-
+    rewardBannerTitleOn: {
       color:
-        '#a16207',
+        '#15803d',
     },
 
-    notice: {
-      backgroundColor:
-        '#fff7ed',
-
-      borderWidth: 1,
-
-      borderColor:
-        '#fed7aa',
-
-      borderRadius: 10,
-
-      padding: 8,
-
-      marginBottom: 14,
-    },
-
-    noticeText: {
-      fontSize: 8,
-
-      lineHeight: 12,
-
+    rewardBannerTitleOff: {
       color:
-        '#9a3412',
+        '#64748b',
+    },
+
+    rewardBannerText: {
+      fontSize: 8.5,
+      lineHeight: 13,
+      color:
+        '#94a3b8',
     },
 
     /*
@@ -2838,67 +2554,83 @@ const styles =
     sectionHeader: {
       flexDirection:
         'row',
-
       alignItems:
         'flex-end',
-
       justifyContent:
         'space-between',
-
-      marginBottom: 8,
+      marginBottom: 9,
     },
 
     sectionEyebrow: {
       fontSize: 7,
-
       fontWeight:
         '900',
-
       color:
-        '#c5c8cf',
-
+        '#b4b9c3',
       letterSpacing:
-        1.3,
-
+        1.25,
       marginBottom: 3,
     },
 
     sectionTitle: {
-      fontSize: 16,
-
+      fontSize: 17,
       fontWeight:
         '900',
-
       color:
         '#182033',
     },
 
-    progressDemo: {
-      fontSize: 6.5,
-
-      fontWeight:
-        '900',
-
-      color:
-        '#d4b468',
-
-      letterSpacing:
-        1.1,
-    },
-
     sectionLabel: {
       fontSize: 8,
-
       fontWeight:
         '900',
-
       color:
-        '#c5c8cf',
-
+        '#b8bdc6',
       letterSpacing:
         1.3,
-
       marginBottom: 8,
+    },
+
+    sectionLabelSmall: {
+      fontSize: 7,
+      fontWeight:
+        '900',
+      color:
+        '#b8bdc6',
+      letterSpacing:
+        1.3,
+      marginBottom: 3,
+    },
+
+    liveBadge: {
+      flexDirection:
+        'row',
+      alignItems:
+        'center',
+      backgroundColor:
+        '#ecfdf5',
+      borderRadius: 999,
+      paddingHorizontal: 8,
+      paddingVertical: 5,
+    },
+
+    liveBadgeDot: {
+      width: 5,
+      height: 5,
+      borderRadius: 3,
+      backgroundColor:
+        '#22c55e',
+      marginRight: 5,
+    },
+
+    liveBadgeText: {
+      fontSize: 6.5,
+      fontWeight:
+        '900',
+      color:
+        '#15803d',
+      letterSpacing:
+        0.7,
     },
 
     /*
@@ -2908,109 +2640,83 @@ const styles =
     progressCard: {
       backgroundColor:
         '#ffffff',
-
       borderWidth: 1,
-
       borderColor:
         '#edf0f4',
-
       borderRadius: 18,
-
       padding: 16,
-
       marginBottom: 22,
     },
 
     progressTop: {
       flexDirection:
         'row',
-
       justifyContent:
         'space-between',
-
       alignItems:
         'flex-end',
     },
 
     progressLabel: {
       fontSize: 7,
-
       fontWeight:
         '900',
-
       color:
         '#b2b7c1',
-
       letterSpacing:
         1.1,
-
       marginBottom: 3,
     },
 
     progressCountRow: {
       flexDirection:
         'row',
-
       alignItems:
         'baseline',
     },
 
     progressCount: {
       fontSize: 27,
-
       fontWeight:
         '900',
-
       color:
         '#1c2436',
-
       letterSpacing:
         -0.8,
     },
 
     progressTotal: {
       fontSize: 13,
-
       fontWeight:
         '700',
-
       color:
         '#c5c9d0',
     },
 
     progressPercent: {
       fontSize: 16,
-
       fontWeight:
         '800',
-
       color:
         '#6176e9',
-
       marginBottom: 3,
     },
 
     progressTrack: {
       height: 7,
-
       borderRadius: 999,
-
       backgroundColor:
         '#edf0f5',
-
       overflow:
         'hidden',
-
       marginTop: 8,
-
       marginBottom: 16,
     },
 
     progressFill: {
-      height: '100%',
-
+      height:
+        '100%',
       borderRadius: 999,
-
       backgroundColor:
         '#6278eb',
     },
@@ -3018,83 +2724,64 @@ const styles =
     progressBottom: {
       flexDirection:
         'row',
-
       alignItems:
         'center',
-
       justifyContent:
         'space-between',
     },
 
     progressStat: {
       flex: 1,
-
       alignItems:
         'center',
     },
 
     progressStatValue: {
       fontSize: 14,
-
       fontWeight:
         '900',
-
       color:
         '#1c2436',
-
       marginBottom: 2,
     },
 
     progressStatLabel: {
       fontSize: 6,
-
       fontWeight:
         '800',
-
       color:
         '#b5bac3',
-
       letterSpacing:
         0.8,
     },
 
     /*
-     * ACTIONS
+     * QUICK ACTIONS
      */
 
     actionGrid: {
       flexDirection:
         'row',
-
       gap: 10,
-
       marginBottom: 23,
     },
 
     actionCard: {
       flex: 1,
-
       minHeight: 145,
-
       backgroundColor:
         '#ffffff',
-
       borderWidth: 1,
-
       borderColor:
         '#edf0f4',
-
       borderRadius: 18,
-
       padding: 14,
-
       position:
         'relative',
     },
 
     pressed: {
       opacity: 0.72,
-
       transform: [
         {
           scale: 0.99,
@@ -3104,17 +2791,12 @@ const styles =
 
     actionIcon: {
       width: 38,
-
       height: 38,
-
       borderRadius: 12,
-
       alignItems:
         'center',
-
       justifyContent:
         'center',
-
       marginBottom: 17,
     },
 
@@ -3130,62 +2812,48 @@ const styles =
 
     actionIconText: {
       fontSize: 23,
-
       fontWeight:
         '300',
-
       color:
         '#6176e9',
     },
 
     storeIcon: {
       fontSize: 23,
-
       fontWeight:
         '300',
-
       color:
         '#4b5563',
     },
 
     actionTitle: {
       fontSize: 13,
-
       fontWeight:
         '900',
-
       color:
         '#182033',
-
       marginBottom: 4,
     },
 
     actionSubtitle: {
       fontSize: 9,
-
       lineHeight: 14,
-
       color:
         '#b0b5bf',
-
       paddingRight: 10,
     },
 
     actionArrow: {
       position:
         'absolute',
-
       right: 11,
-
       bottom: 11,
     },
 
     arrowText: {
       fontSize: 15,
-
       fontWeight:
         '800',
-
       color:
         '#d1d5db',
     },
@@ -3197,115 +2865,73 @@ const styles =
     routeHeader: {
       flexDirection:
         'row',
-
       alignItems:
         'flex-end',
-
       justifyContent:
         'space-between',
-
       marginBottom: 8,
-    },
-
-    sectionLabelSmall: {
-      fontSize: 7,
-
-      fontWeight:
-        '900',
-
-      color:
-        '#c5c8cf',
-
-      letterSpacing:
-        1.3,
-
-      marginBottom: 4,
     },
 
     routeTitle: {
       fontSize: 19,
-
       fontWeight:
         '900',
-
       color:
         '#182033',
-
       letterSpacing:
         -0.4,
     },
 
-    viewMapText: {
+    routeLiveText: {
       fontSize: 7,
-
       fontWeight:
         '900',
-
       color:
         '#6176e9',
-
       letterSpacing:
         0.8,
-
       marginBottom: 2,
     },
 
     routeCard: {
       backgroundColor:
         '#ffffff',
-
       borderWidth: 1,
-
       borderColor:
         '#edf0f4',
-
       borderRadius: 19,
-
       padding: 14,
-
       marginBottom: 22,
     },
 
     routeSummary: {
       flexDirection:
         'row',
-
       alignItems:
         'center',
-
       paddingBottom: 13,
-
       borderBottomWidth: 1,
-
       borderBottomColor:
         '#f1f3f6',
     },
 
     routeSummaryIcon: {
       width: 34,
-
       height: 34,
-
       borderRadius: 11,
-
       backgroundColor:
         '#f1f0ff',
-
       alignItems:
         'center',
-
       justifyContent:
         'center',
-
       marginRight: 9,
     },
 
     routeSummaryIconText: {
       fontSize: 13,
-
       fontWeight:
         '900',
-
       color:
         '#7469d6',
     },
@@ -3316,19 +2942,15 @@ const styles =
 
     routeSummaryTitle: {
       fontSize: 11,
-
       fontWeight:
         '900',
-
       color:
         '#253047',
-
       marginBottom: 2,
     },
 
     routeSummarySubtitle: {
       fontSize: 8,
-
       color:
         '#b1b6bf',
     },
@@ -3341,295 +2963,186 @@ const styles =
     timelineRow: {
       flexDirection:
         'row',
-
       minHeight: 49,
     },
 
     timelineRail: {
       width: 24,
-
       alignItems:
         'center',
-
       marginRight: 7,
     },
 
     timelineDot: {
       width: 9,
-
       height: 9,
-
       borderRadius: 5,
-
-      zIndex: 2,
-    },
-
-    timelineDotCompleted: {
       backgroundColor:
         '#6176e9',
+      zIndex: 2,
+      marginTop: 2,
     },
 
-    timelineDotUpcoming: {
+    timelineDotOrder: {
       backgroundColor:
-        '#d9dde5',
+        '#22a56d',
     },
 
     timelineLine: {
       width: 1,
-
       flex: 1,
-
       marginTop: -1,
-    },
-
-    timelineLineCompleted: {
       backgroundColor:
-        '#9ba8ed',
-    },
-
-    timelineLineUpcoming: {
-      backgroundColor:
-        '#e5e7eb',
+        '#dce2f7',
     },
 
     timelineContent: {
       flex: 1,
-
       paddingBottom: 10,
     },
 
     timelineMain: {
       flexDirection:
         'row',
-
       alignItems:
-        'center',
-
+        'flex-start',
       justifyContent:
         'space-between',
     },
 
-    timelineStore: {
+    timelineStoreContainer: {
       flex: 1,
+      paddingRight: 8,
+    },
 
+    timelineStore: {
       fontSize: 10,
-
       fontWeight:
         '800',
-
       color:
         '#253047',
+    },
 
-      paddingRight: 8,
+    timelineCode: {
+      fontSize: 7,
+      color:
+        '#b4b9c2',
+      marginTop: 2,
     },
 
     timelineTime: {
       fontSize: 8,
-
       color:
         '#a7adb7',
     },
 
-    timelineMeta: {
-      fontSize: 7.5,
-
-      color:
-        '#b3b8c1',
-
-      marginTop: 2,
-    },
-
-    timelineStatus: {
-      width: 22,
-
+    timelineMetaRow: {
+      flexDirection:
+        'row',
       alignItems:
         'center',
-
-      justifyContent:
-        'flex-start',
-
-      paddingTop: 1,
+      marginTop: 3,
     },
 
-    timelineCheck: {
-      fontSize: 12,
+    timelineMeta: {
+      fontSize: 7,
+      color:
+        '#b3b8c1',
+    },
 
+    orderMiniBadge: {
+      backgroundColor:
+        '#ecfdf5',
+      borderRadius: 999,
+      paddingHorizontal: 5,
+      paddingVertical: 3,
+      marginLeft: 6,
+    },
+
+    orderMiniBadgeText: {
+      fontSize: 5.5,
       fontWeight:
         '900',
-
       color:
-        '#40b77d',
-    },
-
-    timelineVisited: {
-      fontSize: 15,
-
-      color:
-        '#6176e9',
-    },
-
-    timelineUpcoming: {
-      fontSize: 13,
-
-      color:
-        '#d0d4db',
+        '#15803d',
+      letterSpacing:
+        0.5,
     },
 
     fullRouteButton: {
       height: 42,
-
       borderRadius: 11,
-
       backgroundColor:
         '#1a1e42',
-
       flexDirection:
         'row',
-
       alignItems:
         'center',
-
       justifyContent:
         'center',
     },
 
     fullRouteButtonText: {
       fontSize: 7.5,
-
       fontWeight:
         '900',
-
       color:
         '#ffffff',
-
       letterSpacing:
         1,
     },
 
     fullRouteArrow: {
       fontSize: 13,
-
       fontWeight:
         '900',
-
       color:
         '#ffffff',
-
       marginLeft: 7,
     },
 
-    /*
-     * NEXT STOP
-     */
-
-    nextStopCard: {
-      flexDirection:
-        'row',
-
+    emptyRoute: {
       alignItems:
         'center',
-
-      backgroundColor:
-        '#171a38',
-
-      borderRadius: 16,
-
-      padding: 12,
-
-      marginBottom: 22,
+      paddingVertical: 25,
     },
 
-    nextStopIcon: {
-      width: 35,
-
-      height: 35,
-
-      borderRadius: 11,
-
+    emptyRouteIcon: {
+      width: 42,
+      height: 42,
+      borderRadius: 13,
       backgroundColor:
-        '#2d3158',
-
+        '#f8fafc',
       alignItems:
         'center',
-
       justifyContent:
         'center',
-
-      marginRight: 9,
+      marginBottom: 9,
     },
 
-    nextStopIconText: {
-      fontSize: 17,
+    emptyRouteIconText: {
+      fontSize: 18,
+      color:
+        '#94a3b8',
+    },
 
+    emptyRouteTitle: {
+      fontSize: 11,
       fontWeight:
         '900',
-
       color:
-        '#ffffff',
+        '#334155',
+      marginBottom: 4,
     },
 
-    nextStopContent: {
-      flex: 1,
-    },
-
-    nextStopEyebrow: {
-      fontSize: 6.5,
-
-      fontWeight:
-        '900',
-
+    emptyRouteText: {
+      fontSize: 8,
+      lineHeight: 12,
       color:
-        '#9da5cf',
-
-      letterSpacing:
-        0.8,
-
-      marginBottom: 2,
-    },
-
-    nextStopTitle: {
-      fontSize: 12,
-
-      fontWeight:
-        '900',
-
-      color:
-        '#ffffff',
-
-      marginBottom: 2,
-    },
-
-    nextStopText: {
-      fontSize: 7.5,
-
-      color:
-        '#a5aac2',
-    },
-
-    nextStopBadge: {
-      backgroundColor:
-        '#657af0',
-
-      borderRadius: 9,
-
-      paddingHorizontal: 9,
-
-      paddingVertical: 6,
-
-      marginLeft: 7,
-    },
-
-    nextStopBadgeText: {
-      fontSize: 6.5,
-
-      fontWeight:
-        '900',
-
-      color:
-        '#ffffff',
-
-      letterSpacing:
-        0.7,
+        '#94a3b8',
+      textAlign:
+        'center',
+      maxWidth: 270,
     },
 
     /*
@@ -3639,26 +3152,19 @@ const styles =
     visitCard: {
       backgroundColor:
         '#ffffff',
-
       borderWidth: 1,
-
       borderColor:
         '#e2e8f0',
-
       borderRadius: 20,
-
       padding: 16,
-
       marginBottom: 22,
     },
 
     visitHeader: {
       flexDirection:
         'row',
-
       alignItems:
         'center',
-
       justifyContent:
         'space-between',
     },
@@ -3666,91 +3172,67 @@ const styles =
     visitHeaderLeft: {
       flexDirection:
         'row',
-
       alignItems:
         'center',
-
       flex: 1,
     },
 
     liveIndicator: {
       width: 37,
-
       height: 37,
-
       borderRadius: 12,
-
       backgroundColor:
         '#ecfdf5',
-
       alignItems:
         'center',
-
       justifyContent:
         'center',
-
       marginRight: 10,
     },
 
     liveDot: {
       width: 9,
-
       height: 9,
-
       borderRadius: 5,
-
       backgroundColor:
         '#10b981',
     },
 
     visitEyebrow: {
       fontSize: 7,
-
       fontWeight:
         '900',
-
       color:
         '#10b981',
-
       letterSpacing:
         0.9,
-
       marginBottom: 2,
     },
 
     visitTitle: {
       fontSize: 14,
-
       fontWeight:
         '900',
-
       color:
         '#111827',
     },
 
     checkCircle: {
       width: 31,
-
       height: 31,
-
       borderRadius: 16,
-
       backgroundColor:
         '#dcfce7',
-
       alignItems:
         'center',
-
       justifyContent:
         'center',
     },
 
     checkText: {
       fontSize: 14,
-
       fontWeight:
         '900',
-
       color:
         '#16a34a',
     },
@@ -3758,13 +3240,9 @@ const styles =
     visitInfoRow: {
       flexDirection:
         'row',
-
       marginTop: 17,
-
       paddingTop: 14,
-
       borderTopWidth: 1,
-
       borderTopColor:
         '#f1f5f9',
     },
@@ -3775,25 +3253,19 @@ const styles =
 
     visitInfoLabel: {
       fontSize: 7,
-
       fontWeight:
         '900',
-
       color:
         '#94a3b8',
-
       letterSpacing:
         0.7,
-
       marginBottom: 4,
     },
 
     visitInfoValue: {
       fontSize: 12,
-
       fontWeight:
         '900',
-
       color:
         '#334155',
     },
@@ -3811,14 +3283,10 @@ const styles =
     orderBanner: {
       flexDirection:
         'row',
-
       alignItems:
         'center',
-
       borderRadius: 13,
-
       padding: 10,
-
       marginTop: 13,
     },
 
@@ -3834,17 +3302,12 @@ const styles =
 
     orderBannerIcon: {
       width: 30,
-
       height: 30,
-
       borderRadius: 9,
-
       alignItems:
         'center',
-
       justifyContent:
         'center',
-
       marginRight: 9,
     },
 
@@ -3860,7 +3323,6 @@ const styles =
 
     orderBannerIconText: {
       fontSize: 14,
-
       fontWeight:
         '900',
     },
@@ -3881,10 +3343,8 @@ const styles =
 
     orderBannerTitle: {
       fontSize: 10,
-
       fontWeight:
         '900',
-
       marginBottom: 2,
     },
 
@@ -3900,9 +3360,7 @@ const styles =
 
     orderBannerText: {
       fontSize: 8,
-
       lineHeight: 12,
-
       color:
         '#94a3b8',
     },
@@ -3911,53 +3369,42 @@ const styles =
       marginTop: 11,
     },
 
+    /*
+     * REWARD PAUSED
+     */
+
     rewardPausedStrip: {
       flexDirection:
         'row',
-
       alignItems:
         'center',
-
       backgroundColor:
         '#f8fafc',
-
       borderRadius: 13,
-
       padding: 10,
-
       marginTop: 11,
-
       borderWidth: 1,
-
       borderColor:
         '#e2e8f0',
     },
 
     rewardPausedBadge: {
       width: 30,
-
       height: 30,
-
       borderRadius: 9,
-
       backgroundColor:
         '#e2e8f0',
-
       alignItems:
         'center',
-
       justifyContent:
         'center',
-
       marginRight: 9,
     },
 
     rewardPausedBadgeText: {
       color:
         '#64748b',
-
       fontSize: 14,
-
       fontWeight:
         '900',
     },
@@ -3968,67 +3415,53 @@ const styles =
 
     rewardPausedTitle: {
       fontSize: 10,
-
       fontWeight:
         '900',
-
       color:
         '#334155',
-
       marginBottom: 2,
     },
 
     rewardPausedText: {
       fontSize: 8,
-
       lineHeight: 12,
-
       color:
         '#94a3b8',
     },
 
+    /*
+     * COMPLETED
+     */
+
     completedStrip: {
       flexDirection:
         'row',
-
       alignItems:
         'center',
-
       backgroundColor:
         '#faf5ff',
-
       borderRadius: 13,
-
       padding: 10,
-
       marginTop: 11,
     },
 
     completedBadge: {
       width: 30,
-
       height: 30,
-
       borderRadius: 9,
-
       backgroundColor:
         '#ede9fe',
-
       alignItems:
         'center',
-
       justifyContent:
         'center',
-
       marginRight: 9,
     },
 
     completedBadgeText: {
       color:
         '#7c3aed',
-
       fontSize: 14,
-
       fontWeight:
         '900',
     },
@@ -4039,19 +3472,15 @@ const styles =
 
     completedTitle: {
       fontSize: 10,
-
       fontWeight:
         '900',
-
       color:
         '#6d28d9',
-
       marginBottom: 2,
     },
 
     completedText: {
       fontSize: 8,
-
       color:
         '#94a3b8',
     },
@@ -4063,50 +3492,35 @@ const styles =
     historyCard: {
       flexDirection:
         'row',
-
       alignItems:
         'center',
-
       backgroundColor:
         '#ffffff',
-
       borderWidth: 1,
-
       borderColor:
         '#e2e8f0',
-
       borderRadius: 17,
-
       padding: 13,
-
       marginBottom: 17,
     },
 
     historyIcon: {
       width: 41,
-
       height: 41,
-
       borderRadius: 12,
-
       backgroundColor:
         '#f1f5f9',
-
       alignItems:
         'center',
-
       justifyContent:
         'center',
-
       marginRight: 10,
     },
 
     historyIconText: {
       fontSize: 19,
-
       fontWeight:
         '600',
-
       color:
         '#475569',
     },
@@ -4117,32 +3531,25 @@ const styles =
 
     historyTitle: {
       fontSize: 12,
-
       fontWeight:
         '900',
-
       color:
         '#1e293b',
-
       marginBottom: 3,
     },
 
     historyText: {
       fontSize: 9,
-
       color:
         '#94a3b8',
     },
 
     historyArrow: {
       fontSize: 17,
-
       fontWeight:
         '700',
-
       color:
         '#94a3b8',
-
       marginLeft: 8,
     },
 
@@ -4153,21 +3560,16 @@ const styles =
     signOutButton: {
       alignItems:
         'center',
-
       justifyContent:
         'center',
-
       paddingVertical: 12,
-
       marginBottom: 15,
     },
 
     signOutText: {
       fontSize: 10,
-
       fontWeight:
         '800',
-
       color:
         '#a1a5ae',
     },
@@ -4179,37 +3581,27 @@ const styles =
     footer: {
       flexDirection:
         'row',
-
       alignItems:
         'center',
-
       justifyContent:
         'center',
-
       paddingHorizontal: 15,
-
       paddingBottom: 10,
     },
 
     footerDot: {
       width: 5,
-
       height: 5,
-
       borderRadius: 3,
-
       backgroundColor:
         '#10b981',
-
       marginRight: 6,
     },
 
     footerText: {
       fontSize: 7.5,
-
       color:
         '#a1a1aa',
-
       textAlign:
         'center',
     },
