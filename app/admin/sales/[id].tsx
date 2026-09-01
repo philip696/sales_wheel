@@ -42,7 +42,7 @@ const ATTENDANCE_BUCKET =
  *
  * Set to false when you are ready to use real backend data again.
  */
-const DEMO_MODE = true;
+const DEMO_MODE = false;
 
 /*
  * ================================================================
@@ -60,6 +60,8 @@ type Attendance = {
   id: string;
   sales_id: string;
   store_id: string | null;
+  store_name?: string | null;
+  store_code?: string | null;
   latitude: number | null;
   longitude: number | null;
   gps_accuracy: number | null;
@@ -804,9 +806,112 @@ export default function AdminSalesCalendarScreen() {
                 ),
             );
 
+          /*
+           * ----------------------------------------------------------
+           * LOAD STORE NAMES
+           * ----------------------------------------------------------
+           *
+           * Attendance stores only store_id. Load the corresponding
+           * store names/codes from the real stores table separately.
+           * This avoids depending on Supabase foreign-key relationship
+           * inference in the client query.
+           */
+
+          const storeIds =
+            Array.from(
+              new Set(
+                records
+                  .map(
+                    (record) =>
+                      record.store_id,
+                  )
+                  .filter(
+                    (
+                      id,
+                    ): id is string =>
+                      typeof id ===
+                        'string' &&
+                      id.length > 0,
+                  ),
+              ),
+            );
+
+          const storeMap =
+            new Map<
+              string,
+              {
+                name: string | null;
+                store_code: string | null;
+              }
+            >();
+
+          if (
+            storeIds.length >
+            0
+          ) {
+            const {
+              data: storeRows,
+              error: storeError,
+            } =
+              await supabase
+                .from('stores')
+                .select(
+                  'id, name, store_code',
+                )
+                .in(
+                  'id',
+                  storeIds,
+                );
+
+            if (
+              storeError
+            ) {
+              throw storeError;
+            }
+
+            for (
+              const store of
+                storeRows ?? []
+            ) {
+              storeMap.set(
+                store.id,
+                {
+                  name:
+                    store.name ??
+                    null,
+                  store_code:
+                    store.store_code ??
+                    null,
+                },
+              );
+            }
+          }
+
+          const recordsWithStores =
+            records.map(
+              (record) => {
+                const store =
+                  record.store_id
+                    ? storeMap.get(
+                        record.store_id,
+                      )
+                    : undefined;
+
+                return {
+                  ...record,
+                  store_name:
+                    store?.name ??
+                    null,
+                  store_code:
+                    store?.store_code ??
+                    null,
+                };
+              },
+            );
+
           const recordsWithPhotos =
             await addPhotoUrls(
-              records,
+              recordsWithStores,
             );
 
           setSalesUser(
@@ -1237,10 +1342,105 @@ export default function AdminSalesCalendarScreen() {
         throw attendanceError;
       }
 
+      const exactRawAttendances =
+        (data ??
+          []) as Attendance[];
+
+      const exactStoreIds =
+        Array.from(
+          new Set(
+            exactRawAttendances
+              .map(
+                (record) =>
+                  record.store_id,
+              )
+              .filter(
+                (
+                  id,
+                ): id is string =>
+                  typeof id ===
+                    'string' &&
+                  id.length > 0,
+              ),
+          ),
+        );
+
+      const exactStoreMap =
+        new Map<
+          string,
+          {
+            name: string | null;
+            store_code: string | null;
+          }
+        >();
+
+      if (
+        exactStoreIds.length >
+        0
+      ) {
+        const {
+          data: exactStores,
+          error: exactStoresError,
+        } =
+          await supabase
+            .from('stores')
+            .select(
+              'id, name, store_code',
+            )
+            .in(
+              'id',
+              exactStoreIds,
+            );
+
+        if (
+          exactStoresError
+        ) {
+          throw exactStoresError;
+        }
+
+        for (
+          const store of
+            exactStores ?? []
+        ) {
+          exactStoreMap.set(
+            store.id,
+            {
+              name:
+                store.name ??
+                null,
+              store_code:
+                store.store_code ??
+                null,
+            },
+          );
+        }
+      }
+
+      const exactAttendancesWithStores =
+        exactRawAttendances.map(
+          (record) => {
+            const store =
+              record.store_id
+                ? exactStoreMap.get(
+                    record.store_id,
+                  )
+                : undefined;
+
+            return {
+              ...record,
+              store_name:
+                store?.name ??
+                null,
+              store_code:
+                store?.store_code ??
+                null,
+            };
+          },
+        );
+
       const exactAttendances =
         await addPhotoUrls(
-          (data ??
-            []) as Attendance[],
+          exactAttendancesWithStores,
         );
 
       /*
@@ -1555,13 +1755,7 @@ export default function AdminSalesCalendarScreen() {
               'No email'}
           </Text>
 
-          {DEMO_MODE ? (
-            <View style={styles.demoBadge}>
-              <Text style={styles.demoBadgeText}>
-                DEMO DATA — FRONTEND ONLY
-              </Text>
-            </View>
-          ) : null}
+
         </View>
 
         {/* ===================================================== */}
@@ -2333,11 +2527,24 @@ function AttendanceCard({
             {salesName}
           </Text>
 
-          {attendance.store_id ? (
+          {attendance.store_name ? (
             <Text
               style={
                 styles.storeIdText
               }
+              numberOfLines={1}
+            >
+              {attendance.store_name}
+              {attendance.store_code
+                ? ` • ${attendance.store_code}`
+                : ''}
+            </Text>
+          ) : attendance.store_id ? (
+            <Text
+              style={
+                styles.storeIdText
+              }
+              numberOfLines={1}
             >
               Store ID:{' '}
               {attendance.store_id}

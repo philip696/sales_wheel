@@ -1,10 +1,10 @@
-
 import { Link, router } from 'expo-router';
 import { useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -22,6 +22,7 @@ export default function LoginScreen() {
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const handleLogin = async () => {
@@ -34,18 +35,12 @@ export default function LoginScreen() {
     }
 
     if (!isValidEmail(email)) {
-      Alert.alert(
-        'Invalid Email',
-        'Please enter a valid email address.'
-      );
+      Alert.alert('Invalid Email', 'Please enter a valid email address.');
       return;
     }
 
     if (password.length < 6) {
-      Alert.alert(
-        'Invalid Password',
-        'Password must be at least 6 characters.'
-      );
+      Alert.alert('Invalid Password', 'Password must be at least 6 characters.');
       return;
     }
 
@@ -53,50 +48,24 @@ export default function LoginScreen() {
 
     try {
       await signIn(email, password);
-
-      // Route to index so central router handles destination consistently
       router.replace('/');
     } catch (error) {
-      /*
-       * Keep the existing sign-in logic unchanged.
-       * Only translate the authentication error into
-       * a user-friendly alert here.
-       */
-      const errorMessage =
-        error instanceof Error
-          ? error.message
-          : '';
-
-      const normalizedError =
-        errorMessage.toLowerCase();
+      const errorMessage = error instanceof Error ? error.message : '';
+      const normalizedError = errorMessage.toLowerCase();
 
       const isInvalidCredentials =
-        normalizedError.includes(
-          'invalid login credentials'
-        ) ||
-        normalizedError.includes(
-          'invalid credentials'
-        ) ||
-        normalizedError.includes(
-          'invalid email or password'
-        ) ||
-        normalizedError.includes(
-          'email or password'
-        ) ||
-        normalizedError.includes(
-          'invalid user credentials'
-        );
+        normalizedError.includes('invalid login credentials') ||
+        normalizedError.includes('invalid credentials') ||
+        normalizedError.includes('invalid email or password') ||
+        normalizedError.includes('email or password') ||
+        normalizedError.includes('invalid user credentials');
 
       if (isInvalidCredentials) {
         Alert.alert(
           'Login Failed',
           'Incorrect email or password. Please check your credentials and try again.'
         );
-      } else if (
-        normalizedError.includes(
-          'email not confirmed'
-        )
-      ) {
+      } else if (normalizedError.includes('email not confirmed')) {
         Alert.alert(
           'Email Not Confirmed',
           'Please confirm your email address before signing in.'
@@ -116,71 +85,44 @@ export default function LoginScreen() {
   return (
     <KeyboardAvoidingView
       style={styles.flex}
-      behavior={
-        Platform.OS === 'ios'
-          ? 'padding'
-          : undefined
-      }
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <ScrollView
-        contentContainerStyle={
-          styles.scrollContent
-        }
+        contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.container}>
-          {/* Logo / Branding */}
-          <View style={styles.brand}>
-            <View style={styles.logo}>
-              <Text style={styles.logoText}>
-                S
-              </Text>
+          {/* Brand Header */}
+          <View style={styles.brandContainer}>
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>SM</Text>
             </View>
-
-            <Text style={styles.brandTitle}>
-              Sales Wheel
-            </Text>
-
-            <Text style={styles.brandSubtitle}>
-              Attendance & Rewards
-            </Text>
+            <Text style={styles.brandName}>Sales Man</Text>
+            <Text style={styles.brandTagline}>Field Operations & Management</Text>
           </View>
 
-          {/* Login Card */}
+          {/* Main Card */}
           <View style={styles.card}>
-            <Text style={styles.title}>
-              Welcome Back
+            <Text style={styles.headerTitle}>Sign In</Text>
+            <Text style={styles.headerSubtitle}>
+              Enter your credentials to access your daily tasks.
             </Text>
 
-            <Text style={styles.subtitle}>
-              Sign in to continue to your sales
-              dashboard.
-            </Text>
-
-            {/* Supabase Config Warning */}
             {!config.isSupabaseConfigured && (
               <View style={styles.warningBox}>
-                <Text style={styles.warningTitle}>
-                  Setup Required
-                </Text>
-
+                <Text style={styles.warningTitle}>Configuration Required</Text>
                 <Text style={styles.warningText}>
-                  Set EXPO_PUBLIC_SUPABASE_URL and
-                  EXPO_PUBLIC_SUPABASE_ANON_KEY in
-                  your .env file, then restart Expo.
+                  Add EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY to your .env file.
                 </Text>
               </View>
             )}
 
             {/* Email Field */}
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>
-                EMAIL
-              </Text>
-
+              <Text style={styles.label}>Email</Text>
               <FormInput
-                placeholder="Enter your email"
+                placeholder="name@company.com"
                 autoCapitalize="none"
                 keyboardType="email-address"
                 value={email}
@@ -190,59 +132,46 @@ export default function LoginScreen() {
 
             {/* Password Field */}
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>
-                PASSWORD
-              </Text>
+              <View style={styles.labelRow}>
+                <Text style={styles.label}>Password</Text>
+                <Pressable
+                  onPress={() => setShowPassword(!showPassword)}
+                  hitSlop={8}
+                >
+                  <Text style={styles.toggleText}>
+                    {showPassword ? 'Hide' : 'Show'}
+                  </Text>
+                </Pressable>
+              </View>
 
               <FormInput
                 placeholder="Enter your password"
-                secureTextEntry
+                secureTextEntry={!showPassword}
                 value={password}
                 onChangeText={setPassword}
               />
             </View>
 
-            {/* Login Button */}
+            {/* Action Button */}
             <PrimaryButton
-              title={
-                loading
-                  ? 'Signing In...'
-                  : 'Sign In'
-              }
+              title={loading ? 'Signing In...' : 'Sign In'}
               loading={loading}
               onPress={handleLogin}
-              style={styles.loginButton}
+              style={styles.actionButton}
             />
 
-            {/* Signup Route */}
-            <Link
-              href="/auth/signup"
-              style={styles.signupLink}
-            >
+            {/* Signup Navigation */}
+            <Link href="/auth/signup" style={styles.signupLink}>
               <Text style={styles.signupText}>
-                Don't have an account?{' '}
-                <Text style={styles.signupBold}>
-                  Sign up
-                </Text>
+                Need an account? <Text style={styles.signupHighlight}>Create one</Text>
               </Text>
             </Link>
           </View>
 
-          {/* Dev Route */}
-          <Link
-            href="/(sales)/attendance"
-            style={styles.devLink}
-          >
-            <Text style={styles.devLinkText}>
-              GPS Prototype · Developer Mode
-            </Text>
+          {/* Dev Mode Shortcut */}
+          <Link href="/(sales)/attendance" style={styles.devLink}>
+            <Text style={styles.devText}>Open Location Prototype</Text>
           </Link>
-
-          {/* Footer */}
-          <Text style={styles.footer}>
-            Secure sales attendance & reward
-            management
-          </Text>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -252,7 +181,7 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   flex: {
     flex: 1,
-    backgroundColor: '#f8fafc',
+    backgroundColor: '#f8fafc', // Clean, subtle off-white background
   },
 
   scrollContent: {
@@ -263,121 +192,135 @@ const styles = StyleSheet.create({
 
   container: {
     width: '100%',
-    maxWidth: 480,
+    maxWidth: 400,
     alignSelf: 'center',
-    paddingHorizontal: 24,
+    paddingHorizontal: 20,
   },
 
-  /* Branding */
-  brand: {
+  /* Brand Header */
+  brandContainer: {
     alignItems: 'center',
     marginBottom: 28,
   },
 
-  logo: {
-    width: 64,
-    height: 64,
-    borderRadius: 18,
-    backgroundColor: '#111827',
+  badge: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: '#2563eb',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 12,
-  },
-
-  logoText: {
-    color: '#ffffff',
-    fontSize: 30,
-    fontWeight: '900',
-  },
-
-  brandTitle: {
-    fontSize: 28,
-    fontWeight: '900',
-    color: '#111827',
-    letterSpacing: -0.5,
-  },
-
-  brandSubtitle: {
-    fontSize: 13,
-    color: '#64748b',
-    marginTop: 4,
-  },
-
-  /* Login Card */
-  card: {
-    backgroundColor: '#ffffff',
-    borderRadius: 20,
-    padding: 22,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
-    shadowOpacity: 0.06,
-    shadowRadius: 12,
+    marginBottom: 10,
+    shadowColor: '#2563eb',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
     elevation: 3,
   },
 
-  title: {
-    fontSize: 24,
+  badgeText: {
+    color: '#ffffff',
+    fontSize: 18,
     fontWeight: '800',
-    color: '#111827',
-    marginBottom: 6,
+    letterSpacing: -0.5,
   },
 
-  subtitle: {
+  brandName: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#0f172a',
+    letterSpacing: -0.5,
+  },
+
+  brandTagline: {
     fontSize: 13,
     color: '#64748b',
-    lineHeight: 19,
-    marginBottom: 22,
+    marginTop: 2,
   },
 
-  /* Form Inputs */
+  /* Card Container */
+  card: {
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    padding: 24,
+    borderWidth: 1,
+    borderColor: '#e2e8f0', // Crisp subtle border
+    shadowColor: '#64748b',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.04,
+    shadowRadius: 16,
+    elevation: 2,
+  },
+
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+
+  headerSubtitle: {
+    fontSize: 13,
+    color: '#64748b',
+    marginTop: 4,
+    marginBottom: 20,
+    lineHeight: 18,
+  },
+
+  /* Form Elements */
   inputGroup: {
     marginBottom: 16,
   },
 
-  inputLabel: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#475569',
-    letterSpacing: 0.8,
+  labelRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+
+  label: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#334155',
     marginBottom: 6,
   },
 
-  /* Warning Box */
+  toggleText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#2563eb',
+    marginBottom: 6,
+  },
+
+  /* Warnings */
   warningBox: {
-    backgroundColor: '#fef3c7',
-    borderRadius: 12,
-    padding: 13,
-    marginBottom: 18,
-    borderWidth: 1,
-    borderColor: '#fde68a',
+    backgroundColor: '#fffbe1',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 16,
+    borderLeftWidth: 3,
+    borderLeftColor: '#d97706',
   },
 
   warningTitle: {
-    fontWeight: '800',
+    fontWeight: '700',
     color: '#92400e',
-    marginBottom: 4,
-    fontSize: 13,
+    fontSize: 12,
   },
 
   warningText: {
-    color: '#92400e',
+    color: '#b45309',
     fontSize: 12,
-    lineHeight: 18,
+    marginTop: 2,
   },
 
-  /* Buttons & Navigation */
-  loginButton: {
-    marginTop: 4,
+  /* Actions */
+  actionButton: {
+    marginTop: 8,
   },
 
   signupLink: {
     alignSelf: 'center',
-    marginTop: 20,
+    marginTop: 18,
   },
 
   signupText: {
@@ -385,26 +328,18 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
 
-  signupBold: {
-    color: '#111827',
-    fontWeight: '800',
+  signupHighlight: {
+    color: '#2563eb',
+    fontWeight: '600',
   },
 
   devLink: {
     alignSelf: 'center',
-    marginTop: 22,
+    marginTop: 24,
   },
 
-  devLinkText: {
+  devText: {
     color: '#94a3b8',
-    fontSize: 11,
-    fontWeight: '600',
-  },
-
-  footer: {
-    textAlign: 'center',
-    color: '#94a3b8',
-    fontSize: 11,
-    marginTop: 28,
+    fontSize: 12,
   },
 });
