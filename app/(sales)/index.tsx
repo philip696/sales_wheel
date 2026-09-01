@@ -239,6 +239,7 @@ async function loadBackendDashboard(
         latitude,
         longitude,
         status,
+        order_confirmed,
         created_at
         `
       )
@@ -364,73 +365,42 @@ async function loadBackendDashboard(
 
   /*
    * ----------------------------------------------------------
-   * SPINS / ORDERS
+   * ORDERS
    * ----------------------------------------------------------
    *
-   * Existing relationship:
-   *
-   * spins.attendance_id
-   *        ↓
-   * attendance.id
-   *
-   * A visit is considered an order visit when a spin exists
-   * for that attendance record.
+   * "Order" means attendance.order_confirmed === true -- not
+   * whether a spin exists for that visit. A visit can be
+   * order_confirmed without ever reaching the spin step, so
+   * this reads the flag directly off today's attendance rows
+   * instead of joining through spins.attendance_id.
    */
 
-  const attendanceIds =
-    attendanceRows.map(
-      (
-        row
-      ) =>
-        row.id
-    );
-
   const orderAttendanceIds =
-    new Set<string>();
-
-  if (
-    attendanceIds.length >
-    0
-  ) {
-    const {
-      data: spins,
-      error:
-        spinsError,
-    } =
-      await supabase
-        .from('spins')
-        .select(
-          `
-          id,
-          attendance_id
-          `
+    new Set<string>(
+      attendanceRows
+        .filter(
+          (
+            row
+          ) =>
+            row.order_confirmed ===
+            true
         )
-        .in(
-          'attendance_id',
-          attendanceIds
-        );
-
-    if (
-      spinsError
-    ) {
-      throw new Error(
-        `Could not load order activity: ${spinsError.message}`
-      );
-    }
-
-    for (
-      const spin of
-        spins ?? []
-    ) {
-      if (
-        spin.attendance_id
-      ) {
-        orderAttendanceIds.add(
-          spin.attendance_id
-        );
-      }
-    }
-  }
+        .map(
+          (
+            row
+          ) =>
+            row.id
+        )
+        .filter(
+          (
+            id
+          ): id is string =>
+            typeof id ===
+              'string' &&
+            id.length >
+              0
+        )
+    );
 
   /*
    * ----------------------------------------------------------
