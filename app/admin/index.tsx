@@ -37,7 +37,7 @@ import {
 import {
   getRewardMode,
   setRewardMode,
-} from '@/src/services/rewardModeService';
+} from '@/src/services/rewardService';
 
 /*
  * ============================================================
@@ -88,13 +88,13 @@ const ADMIN_SECTIONS = [
 
   {
     title:
-      'Spin History',
+      'Events',
 
     description:
-      'Review rewards and sales activity',
+      'Manage promo campaigns and rewards',
 
     shortLabel:
-      'S',
+      'E',
 
     accent:
       '#7c3aed',
@@ -103,7 +103,7 @@ const ADMIN_SECTIONS = [
       '#f5f3ff',
 
     route:
-      '/admin/spins',
+      '/admin/events',
   },
 
   {

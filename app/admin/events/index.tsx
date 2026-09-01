@@ -3,28 +3,28 @@ import { FormInput } from '@/src/components/FormInput';
 import { PrimaryButton } from '@/src/components/PrimaryButton';
 import { ScreenContainer } from '@/src/components/ScreenContainer';
 import {
-    createEvent,
-    deleteEvent,
-    listEvents,
-    setEventStatus,
-    updateEvent,
-    type EventInput,
+  createEvent,
+  deleteEvent,
+  listEvents,
+  setEventStatus,
+  updateEvent,
+  type EventInput,
 } from '@/src/services/eventService';
 import type { Event } from '@/src/types';
 import { router } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import {
-    ActivityIndicator,
-    FlatList,
-    KeyboardAvoidingView,
-    Modal,
-    Platform,
-    Pressable,
-    RefreshControl,
-    StyleSheet,
-    Switch,
-    Text,
-    View,
+  ActivityIndicator,
+  FlatList,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  RefreshControl,
+  StyleSheet,
+  Switch,
+  Text,
+  View,
 } from 'react-native';
 
 const EMPTY_FORM: EventInput = {

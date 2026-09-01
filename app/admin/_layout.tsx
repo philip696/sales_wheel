@@ -7,17 +7,108 @@ export default function AdminLayout() {
         headerTitleStyle: {
           fontWeight: '700',
         },
+
         headerBackTitle: 'Back',
+
+        headerTintColor: '#111827',
+
+        headerStyle: {
+          backgroundColor: '#ffffff',
+        },
+
+        headerShadowVisible: false,
       }}
     >
-      <Stack.Screen name="index" options={{ title: 'Admin Dashboard' }} />
-      <Stack.Screen name="attendance" options={{ title: 'Attendance' }} />
-      <Stack.Screen name="routes" options={{ title: 'Sales Routes' }} />
-      <Stack.Screen name="spins/index" options={{ title: 'Spin Activity' }} />
-      <Stack.Screen name="spins/[storeId]" options={{ title: 'Store Spin History' }} />
-      <Stack.Screen name="stores" options={{ title: 'Stores' }} />
-      <Stack.Screen name="sales" options={{ title: 'Sales Team' }} />
-      <Stack.Screen name="rewards" options={{ title: 'Rewards' }} />
+      {/* =====================================================
+       * ADMIN DASHBOARD
+       * ===================================================== */}
+
+      <Stack.Screen
+        name="index"
+        options={{
+          title: 'Admin Dashboard',
+        }}
+      />
+
+      {/* =====================================================
+       * ATTENDANCE
+       * ===================================================== */}
+
+      <Stack.Screen
+        name="attendance"
+        options={{
+          title: 'Attendance',
+        }}
+      />
+
+      {/* =====================================================
+       * SALES ROUTES
+       * ===================================================== */}
+
+      <Stack.Screen
+        name="routes"
+        options={{
+          title: 'Sales Routes',
+        }}
+      />
+
+      {/* =====================================================
+       * EVENTS
+       * ===================================================== */}
+
+      <Stack.Screen
+        name="events/index"
+        options={{
+          title: 'Events',
+        }}
+      />
+
+      <Stack.Screen
+        name="events/[id]"
+        options={{
+          title: 'Event Details',
+        }}
+      />
+
+      {/* =====================================================
+       * STORES
+       * ===================================================== */}
+
+      <Stack.Screen
+        name="stores"
+        options={{
+          title: 'Stores',
+        }}
+      />
+
+      {/* =====================================================
+       * SALES TEAM
+       * ===================================================== */}
+
+      <Stack.Screen
+        name="sales"
+        options={{
+          title: 'Sales Team',
+        }}
+      />
+
+      <Stack.Screen
+        name="sales/[id]"
+        options={{
+          title: 'Sales Profile',
+        }}
+      />
+
+      {/* =====================================================
+       * REWARDS
+       * ===================================================== */}
+
+      <Stack.Screen
+        name="rewards"
+        options={{
+          title: 'Rewards',
+        }}
+      />
     </Stack>
   );
 }
