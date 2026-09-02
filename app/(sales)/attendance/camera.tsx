@@ -386,6 +386,7 @@ export default function AttendanceCameraScreen() {
           await cameraRef.current.takePictureAsync(
             {
               quality: 0.8,
+              imageType: 'jpg',
               skipProcessing: false,
             }
           );

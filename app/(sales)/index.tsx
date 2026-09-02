@@ -1231,7 +1231,6 @@ export default function SalesHomeScreen() {
                   }
                 >
                   {' '}
-                  / {totalStops}
                 </Text>
               </View>
             </View>
@@ -1241,15 +1240,7 @@ export default function SalesHomeScreen() {
                 styles.progressPercent
               }
             >
-              {totalStops >
-              0
-                ? Math.round(
-                    (visitCount /
-                      totalStops) *
-                      100
-                  )
-                : 0}
-              %
+              {conversionRate}%
             </Text>
           </View>
 
@@ -1262,17 +1253,7 @@ export default function SalesHomeScreen() {
               style={[
                 styles.progressFill,
                 {
-                  width: `${
-                    totalStops >
-                    0
-                      ? Math.min(
-                          (visitCount /
-                            totalStops) *
-                            100,
-                          100
-                        )
-                      : 0
-                  }%`,
+                  width: `${Math.min(Number(conversionRate), 100)}%`,
                 },
               ]}
             />

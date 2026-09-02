@@ -1007,7 +1007,7 @@ export default function AddStoreScreen() {
                 () => {
                   router.replace({
                     pathname:
-                      '/store-details',
+                      '/',
 
                     params: {
                       storeId:

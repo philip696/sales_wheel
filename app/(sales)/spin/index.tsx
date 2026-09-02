@@ -1,863 +1,549 @@
-// app/(sales)/index.tsx
-
-import { router } from 'expo-router';
-
+import { ScreenContainer } from '@/src/components/ScreenContainer';
+import { useAttendanceFlow } from '@/src/features/attendance/AttendanceFlowContext';
+import { supabase } from '@/src/lib/supabase';
 import {
-  useCallback,
+  getActiveEvent,
+  listActiveRewards,
+} from '@/src/services/rewardService';
+import type { Reward } from '@/src/types';
+import * as Location from 'expo-location';
+import { router } from 'expo-router';
+import {
   useEffect,
-  useMemo,
+  useRef,
   useState,
 } from 'react';
-
 import {
   ActivityIndicator,
+  Alert,
+  Animated,
+  Easing,
   Pressable,
-  RefreshControl,
-  ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
 
-import { PrimaryButton } from '@/src/components/PrimaryButton';
-import { ScreenContainer } from '@/src/components/ScreenContainer';
-
-import { useAttendanceFlow } from '@/src/features/attendance/AttendanceFlowContext';
-import { useAuth } from '@/src/features/auth/useAuth';
-
-import { supabase } from '@/src/lib/supabase';
-
-import {
-  getRewardMode,
-} from '@/src/services/rewardService';
-
 /*
  * ============================================================
- * CONFIG
+ * WHEEL CONFIGURATION
  * ============================================================
  *
- * No fake dashboard data.
+ * IMPORTANT:
  *
- * Everything below is read from Supabase.
+ * Every wheel section is visually the SAME SIZE.
+ *
+ * Probability is NOT used to determine the size of a section.
+ *
+ * Probability is only used internally when selecting
+ * the winning reward.
+ *
+ * Example:
+ *
+ * 5% OFF  = 25% chance
+ * 10% OFF = 35% chance
+ * 15% OFF = 25% chance
+ * 20% OFF = 15% chance
+ *
+ * Visually:
+ *
+ *       ┌───────┬───────┐
+ *       │       │       │
+ *       │  20%  │  5%   │
+ *       │       │       │
+ *       ├───────┼───────┤
+ *       │       │       │
+ *       │  15%  │  10%  │
+ *       │       │       │
+ *       └───────┴───────┘
+ *
+ * All four sections are equal.
+ *
+ * ============================================================
  */
 
-const REFRESH_INTERVAL = 30000;
+const WHEEL_SIZE = 260;
+
+const WHEEL_COLORS = [
+  '#2563eb',
+  '#059669',
+  '#d97706',
+  '#dc2626',
+  '#7c3aed',
+  '#0891b2',
+  '#db2777',
+  '#4f46e5',
+];
 
 /*
  * ============================================================
- * TYPES
+ * TYPE
  * ============================================================
  */
 
-type RouteVisit = {
-  id: string;
-
-  storeId: string | null;
-
-  storeName: string;
-
-  storeCode: string | null;
-
-  time: string;
-
-  orderPlaced: boolean;
-
-  latitude: number | null;
-
-  longitude: number | null;
-
-  status: string | null;
-};
-
-type SalesDashboardData = {
-  visits: RouteVisit[];
-
-  totalPlannedStops: number;
-
-  source: 'backend';
+type WheelReward = Reward & {
+  wheelIndex: number;
+  color: string;
 };
 
 /*
  * ============================================================
- * DATE HELPERS
+ * PREPARE WHEEL REWARDS
  * ============================================================
  */
 
-function getDateKey(
-  date: Date
-): string {
-  const year =
-    date.getFullYear();
+function prepareWheelRewards(
+  rewards: Reward[]
+): WheelReward[] {
+  return rewards.map(
+    (
+      reward,
+      index
+    ) => ({
+      ...reward,
 
-  const month =
-    String(
-      date.getMonth() + 1
-    ).padStart(
-      2,
-      '0'
-    );
+      wheelIndex:
+        index,
 
-  const day =
-    String(
-      date.getDate()
-    ).padStart(
-      2,
-      '0'
-    );
-
-  return `${year}-${month}-${day}`;
-}
-
-function formatTime(
-  value:
-    | string
-    | null
-): string {
-  if (!value) {
-    return '—';
-  }
-
-  const date =
-    new Date(value);
-
-  if (
-    Number.isNaN(
-      date.getTime()
-    )
-  ) {
-    return '—';
-  }
-
-  return date.toLocaleTimeString(
-    [],
-    {
-      hour: '2-digit',
-      minute: '2-digit',
-    }
+      color:
+        WHEEL_COLORS[
+          index %
+            WHEEL_COLORS.length
+        ],
+    })
   );
 }
 
-/*
- * ============================================================
- * LOAD SALES DASHBOARD
- * ============================================================
+/**
+ * Submit the completed wheel spin to PostgreSQL.
+ *
+ * IMPORTANT:
+ * - The wheel animation has already finished before this is called.
+ * - This function is the only place where the completed spin is posted.
+ * - The PostgreSQL `request_spin` RPC is responsible for validating
+ *   the attendance/order and selecting the actual reward.
  */
+async function submitCompletedReward(params: {
+  attendanceId: string;
+  eventId: string;
+  storeId: string;
+  latitude: number;
+  longitude: number;
+}) {
+  console.log('================================');
+  console.log('SUBMITTING COMPLETED SPIN');
+  console.log('ATTENDANCE ID:', params.attendanceId);
+  console.log('EVENT ID:', params.eventId);
+  console.log('STORE ID:', params.storeId);
+  console.log('LATITUDE:', params.latitude);
+  console.log('LONGITUDE:', params.longitude);
+  console.log('RPC: request_spin');
+  console.log('================================');
 
-async function loadBackendDashboard(
-  userId: string
-): Promise<SalesDashboardData> {
-  /*
-   * ----------------------------------------------------------
-   * SALES PROFILE
-   * ----------------------------------------------------------
-   */
+  const { data, error } = await supabase.rpc(
+    'request_spin',
+    {
+      p_attendance_id: params.attendanceId,
+      p_store_id: params.storeId,
+      p_latitude: params.latitude,
+      p_longitude: params.longitude,
+      p_event_id: params.eventId,
+    }
+  );
 
-  const {
-    data: sales,
-    error: salesError,
-  } =
-    await supabase
-      .from('sales')
-      .select(
-        `
-        id,
-        name,
-        sales_code
-        `
-      )
-      .eq(
-        'id',
-        userId
-      )
-      .maybeSingle();
+  console.log('REQUEST_SPIN DATA:', data);
+  console.log('REQUEST_SPIN ERROR:', error);
 
-  if (
-    salesError
-  ) {
+  if (error) {
     throw new Error(
-      `Could not load sales profile: ${salesError.message}`
+      `request_spin failed: ${error.message}`
     );
   }
 
-  if (
-    !sales
-  ) {
+  const result = Array.isArray(data)
+    ? data[0]
+    : data;
+
+  if (!result) {
     throw new Error(
-      'Sales profile not found for this account.'
+      'request_spin returned no result.'
     );
   }
 
-  /*
-   * ----------------------------------------------------------
-   * TODAY
-   * ----------------------------------------------------------
-   */
+  console.log(
+    'REQUEST_SPIN RESULT:',
+    result
+  );
 
-  const now =
-    new Date();
+  const resultStatus =
+    result.status ??
+    result.result_status;
 
-  const startOfDay =
-    new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate(),
-      0,
-      0,
-      0,
-      0
-    );
-
-  const endOfDay =
-    new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate(),
-      23,
-      59,
-      59,
-      999
-    );
-
-  /*
-   * ----------------------------------------------------------
-   * ATTENDANCE
-   * ----------------------------------------------------------
-   */
-
-  const {
-    data: attendance,
-    error:
-      attendanceError,
-  } =
-    await supabase
-      .from('attendance')
-      .select(
-        `
-        id,
-        sales_id,
-        store_id,
-        latitude,
-        longitude,
-        status,
-        created_at
-        `
-      )
-      .eq(
-        'sales_id',
-        sales.id
-      )
-      .gte(
-        'created_at',
-        startOfDay.toISOString()
-      )
-      .lte(
-        'created_at',
-        endOfDay.toISOString()
-      )
-      .order(
-        'created_at',
-        {
-          ascending:
-            true,
-        }
-      );
-
-  if (
-    attendanceError
-  ) {
+  if (resultStatus === 'rejected') {
     throw new Error(
-      `Could not load today's visits: ${attendanceError.message}`
+      result.rejection_reason ??
+        'The spin was rejected by the server.'
     );
   }
 
-  /*
-   * ----------------------------------------------------------
-   * STORE DATA
-   * ----------------------------------------------------------
-   */
-
-  const attendanceRows =
-    attendance ?? [];
-
-  const storeIds =
-    Array.from(
-      new Set(
-        attendanceRows
-          .map(
-            (
-              row
-            ) =>
-              row.store_id
-          )
-          .filter(
-            (
-              id
-            ): id is string =>
-              typeof id ===
-                'string' &&
-              id.length >
-                0
-          )
-      )
+  if (!result.spin_id) {
+    throw new Error(
+      'request_spin did not return a spin ID.'
     );
-
-  const storeMap =
-    new Map<
-      string,
-      {
-        name: string;
-        storeCode:
-          | string
-          | null;
-      }
-    >();
-
-  if (
-    storeIds.length >
-    0
-  ) {
-    const {
-      data: stores,
-      error:
-        storesError,
-    } =
-      await supabase
-        .from('stores')
-        .select(
-          `
-          id,
-          name,
-          store_code
-          `
-        )
-        .in(
-          'id',
-          storeIds
-        );
-
-    if (
-      storesError
-    ) {
-      throw new Error(
-        `Could not load stores: ${storesError.message}`
-      );
-    }
-
-    for (
-      const store of
-        stores ?? []
-    ) {
-      storeMap.set(
-        store.id,
-        {
-          name:
-            store.name ??
-            'Unknown Store',
-
-          storeCode:
-            store.store_code ??
-            null,
-        }
-      );
-    }
   }
 
-  /*
-   * ----------------------------------------------------------
-   * SPINS / ORDERS
-   * ----------------------------------------------------------
-   *
-   * Existing relationship:
-   *
-   * spins.attendance_id
-   *        ↓
-   * attendance.id
-   *
-   * A visit is considered an order visit when a spin exists
-   * for that attendance record.
-   */
-
-  const attendanceIds =
-    attendanceRows.map(
-      (
-        row
-      ) =>
-        row.id
+  if (!result.reward_id) {
+    throw new Error(
+      'request_spin did not return a reward ID.'
     );
-
-  const orderAttendanceIds =
-    new Set<string>();
-
-  if (
-    attendanceIds.length >
-    0
-  ) {
-    const {
-      data: spins,
-      error:
-        spinsError,
-    } =
-      await supabase
-        .from('spins')
-        .select(
-          `
-          id,
-          attendance_id
-          `
-        )
-        .in(
-          'attendance_id',
-          attendanceIds
-        );
-
-    if (
-      spinsError
-    ) {
-      throw new Error(
-        `Could not load order activity: ${spinsError.message}`
-      );
-    }
-
-    for (
-      const spin of
-        spins ?? []
-    ) {
-      if (
-        spin.attendance_id
-      ) {
-        orderAttendanceIds.add(
-          spin.attendance_id
-        );
-      }
-    }
   }
-
-  /*
-   * ----------------------------------------------------------
-   * BUILD VISITS
-   * ----------------------------------------------------------
-   */
-
-  const visits:
-    RouteVisit[] =
-    attendanceRows.map(
-      (
-        row
-      ) => {
-        const store =
-          row.store_id
-            ? storeMap.get(
-                row.store_id
-              )
-            : undefined;
-
-        return {
-          id:
-            row.id,
-
-          storeId:
-            row.store_id ??
-            null,
-
-          storeName:
-            store?.name ??
-            'Unknown Store',
-
-          storeCode:
-            store?.storeCode ??
-            null,
-
-          time:
-            formatTime(
-              row.created_at
-            ),
-
-          orderPlaced:
-            orderAttendanceIds.has(
-              row.id
-            ),
-
-          latitude:
-            row.latitude,
-
-          longitude:
-            row.longitude,
-
-          status:
-            row.status ??
-            null,
-
-          /*
-           * This is the attendance GPS/store distance if your
-           * current query exposes it later.
-           *
-           * For now we keep the dashboard focused on actual
-           * attendance/order data.
-           */
-        } as RouteVisit;
-      }
-    );
-
-  /*
-   * ----------------------------------------------------------
-   * RETURN
-   * ----------------------------------------------------------
-   *
-   * The current database does not contain a route-planning
-   * table in this screen, so the planned stop count is the
-   * number of actual visits recorded today.
-   */
 
   return {
-    visits,
-
-    totalPlannedStops:
-      visits.length,
-
-    source:
-      'backend',
+    spinId: result.spin_id as string,
+    status: resultStatus as string,
+    rewardId: result.reward_id as string,
+    rewardName:
+      result.reward_name as string,
+    rewardValue:
+      (result.reward_value ?? '') as string,
+    rejectionReason:
+      (result.rejection_reason ?? null) as
+        | string
+        | null,
   };
 }
 
 /*
  * ============================================================
- * SALES HOME
+ * MAIN SCREEN
  * ============================================================
  */
 
-export default function SalesHomeScreen() {
-  const {
-    profile,
-    signOut,
-  } =
-    useAuth();
+export default function SpinScreen() {
+  /*
+   * ==========================================================
+   * ATTENDANCE FLOW
+   * ==========================================================
+   */
 
   const {
     selectedStore,
     lastSubmission,
     orderPlaced,
     spinCompleted,
-  } =
-    useAttendanceFlow();
+    setSpinCompleted,
+    setLastSpin,
+    lastSpin,
+  } = useAttendanceFlow();
 
   /*
    * ==========================================================
-   * REWARD MODE
+   * REWARDS
    * ==========================================================
    */
 
   const [
-    rewardEnabled,
-    setRewardEnabled,
-  ] =
-    useState(true);
+    rewards,
+    setRewards,
+  ] = useState<WheelReward[]>(
+    []
+  );
 
   const [
-    rewardModeLoading,
-    setRewardModeLoading,
-  ] =
-    useState(true);
+    loadingRewards,
+    setLoadingRewards,
+  ] = useState(true);
+
+  const [
+    rewardError,
+    setRewardError,
+  ] = useState<string | null>(
+    null
+  );
+
+  const [
+    event,
+    setEvent,
+  ] = useState<{
+    id: string;
+    starts_at: string | null;
+    ends_at: string | null;
+    status: string;
+  } | null>(null);
 
   /*
    * ==========================================================
-   * DASHBOARD
+   * SPIN STATE
    * ==========================================================
    */
 
   const [
-    dashboard,
-    setDashboard,
-  ] =
-    useState<
-      SalesDashboardData | null
-    >(null);
+    spinning,
+    setSpinning,
+  ] = useState(false);
 
   const [
-    loading,
-    setLoading,
-  ] =
-    useState(true);
-
-  const [
-    refreshing,
-    setRefreshing,
-  ] =
-    useState(false);
-
-  const [
-    error,
-    setError,
-  ] =
-    useState<string | null>(
-      null
-    );
+    wonReward,
+    setWonReward,
+  ] = useState<WheelReward | null>(
+    null
+  );
 
   /*
    * ==========================================================
-   * ROLE REDIRECT
+   * ANIMATION
+   * ==========================================================
+   */
+
+  const spinValue =
+    useRef(
+      new Animated.Value(0)
+    ).current;
+
+  const currentRotation =
+    useRef(0);
+
+  /*
+   * ==========================================================
+   * LOAD REWARDS
    * ==========================================================
    */
 
   useEffect(() => {
-    if (
-      profile?.role ===
-      'admin'
-    ) {
-      router.replace(
-        '/admin'
+    loadRewards();
+  }, []);
+
+  const loadRewards =
+    async () => {
+      console.log(
+        '================================================'
       );
-    }
-  }, [
-    profile?.role,
-  ]);
 
-  /*
-   * ==========================================================
-   * LOAD REWARD MODE
-   * ==========================================================
-   */
+      console.log(
+        'SPIN SCREEN: LOADING ACTIVE REWARDS'
+      );
 
-  const loadRewardMode =
-    useCallback(
-      async () => {
-        try {
-          setRewardModeLoading(
-            true
-          );
+      setLoadingRewards(
+        true
+      );
 
-          const mode =
-            await getRewardMode();
+      setRewardError(null);
 
-          setRewardEnabled(
-            mode.enabled
-          );
-        } catch (
-          rewardError
-        ) {
-          console.warn(
-            'SALES HOME REWARD MODE ERROR:',
-            rewardError
-          );
+      try {
+        /*
+         * Use your existing reward service.
+         *
+         * No database changes required.
+         */
 
-          /*
-           * Keep the sales screen usable if the reward event
-           * cannot be loaded.
-           */
-          setRewardEnabled(
-            true
-          );
-        } finally {
-          setRewardModeLoading(
-            false
-          );
-        }
-      },
-      []
-    );
+        const activeEvent =
+          await getActiveEvent();
 
-  /*
-   * ==========================================================
-   * LOAD DASHBOARD
-   * ==========================================================
-   */
-
-  const loadDashboard =
-    useCallback(
-      async (
-        isRefresh = false
-      ) => {
-        if (
-          !profile?.id
-        ) {
+        if (!activeEvent) {
+          setEvent(null);
+          setRewards([]);
           return;
         }
 
-        try {
-          if (
-            isRefresh
-          ) {
-            setRefreshing(
-              true
-            );
-          } else {
-            setLoading(
-              true
+        setEvent(activeEvent);
+
+        console.log(
+          'ACTIVE EVENT FROM SUPABASE:',
+          activeEvent
+        );
+
+        const data =
+          await listActiveRewards();
+
+        console.log(
+          'ACTIVE REWARDS FROM SUPABASE:',
+          data
+        );
+
+        console.log(
+          'ACTIVE REWARD COUNT:',
+          data.length
+        );
+
+        /*
+         * Debug every reward.
+         */
+
+        data.forEach(
+          (
+            reward,
+            index
+          ) => {
+            console.log(
+              `REWARD ${index + 1}:`,
+              {
+                id:
+                  reward.id,
+
+                name:
+                  reward.name,
+
+                value:
+                  reward.value,
+
+                probability:
+                  reward.probability,
+
+                status:
+                  reward.status,
+              }
             );
           }
+        );
 
-          setError(
-            null
-          );
+        /*
+         * Prepare equal-size wheel sections.
+         */
 
-          const data =
-            await loadBackendDashboard(
-              profile.id
-            );
-
-          setDashboard(
+        const prepared =
+          prepareWheelRewards(
             data
           );
-        } catch (
-          dashboardError
+
+        /*
+         * Calculate total probability
+         * for debugging only.
+         */
+
+        const totalProbability =
+          prepared.reduce(
+            (
+              sum,
+              reward
+            ) =>
+              sum +
+              Number(
+                reward.probability
+              ),
+            0
+          );
+
+        console.log(
+          'TOTAL ACTIVE REWARD PROBABILITY:',
+          totalProbability
+        );
+
+        console.log(
+          'TOTAL ACTIVE REWARD PROBABILITY %:',
+          totalProbability *
+            100
+        );
+
+        /*
+         * Warning only.
+         */
+
+        if (
+          totalProbability <
+          0.999
         ) {
-          console.error(
-            'SALES HOME DASHBOARD ERROR:',
-            dashboardError
-          );
-
-          setDashboard(
-            null
-          );
-
-          setError(
-            dashboardError instanceof Error
-              ? dashboardError.message
-              : 'Could not load your dashboard.'
-          );
-        } finally {
-          setLoading(
-            false
-          );
-
-          setRefreshing(
-            false
+          console.warn(
+            'WARNING: ACTIVE REWARD PROBABILITY IS LESS THAN 100%'
           );
         }
-      },
-      [
-        profile?.id,
-      ]
-    );
 
-  /*
-   * ==========================================================
-   * INITIAL LOAD
-   * ==========================================================
-   */
-
-  useEffect(() => {
-    if (
-      !profile?.id
-    ) {
-      return;
-    }
-
-    loadDashboard();
-
-    loadRewardMode();
-  }, [
-    profile?.id,
-    loadDashboard,
-    loadRewardMode,
-  ]);
-
-  /*
-   * ==========================================================
-   * AUTO REFRESH
-   * ==========================================================
-   */
-
-  useEffect(() => {
-    const interval =
-      setInterval(
-        () => {
-          loadDashboard(
-            true
+        if (
+          totalProbability >
+          1.001
+        ) {
+          console.warn(
+            'WARNING: ACTIVE REWARD PROBABILITY IS GREATER THAN 100%'
           );
+        }
 
-          loadRewardMode();
-        },
-        REFRESH_INTERVAL
-      );
-
-    return () => {
-      clearInterval(
-        interval
-      );
-    };
-  }, [
-    loadDashboard,
-    loadRewardMode,
-  ]);
-
-  /*
-   * ==========================================================
-   * FIRST NAME
-   * ==========================================================
-   */
-
-  const firstName =
-    useMemo(() => {
-      const name =
-        profile?.name?.trim();
-
-      if (
-        !name
+        setRewards(
+          prepared
+        );
+      } catch (
+        error
       ) {
-        return 'Sales';
-      }
+        console.error(
+          'LOAD REWARDS ERROR:',
+          error
+        );
 
-      return name.split(
-        ' '
-      )[0];
-    }, [
-      profile?.name,
-    ]);
+        setRewardError(
+          error instanceof Error
+            ? error.message
+            : 'Could not load rewards.'
+        );
+      } finally {
+        setLoadingRewards(
+          false
+        );
+
+        console.log(
+          '================================================'
+        );
+      }
+    };
 
   /*
    * ==========================================================
-   * DASHBOARD VALUES
+   * SPIN ELIGIBILITY
    * ==========================================================
    */
 
-  const visits =
-    dashboard?.visits ??
-    [];
+  const canSpin =
+    !!lastSubmission &&
+    !!selectedStore &&
+    orderPlaced === true &&
+    !spinCompleted &&
+    rewards.length > 0;
 
-  const totalStops =
-    dashboard?.totalPlannedStops ??
-    0;
+/*
+   * ==========================================================
+   * ALREADY COMPLETED
+   * ==========================================================
+   */
 
-  const visitCount =
-    visits.length;
+  if (spinCompleted) {
+    const rewardName = lastSpin?.reward?.name;
+    const rewardValue = lastSpin?.reward?.value;
 
-  const orderCount =
-    visits.filter(
-      (
-        visit
-      ) =>
-        visit.orderPlaced
-    ).length;
+    return (
+      <ScreenContainer
+        title="Spin Wheel"
+        subtitle="Reward already claimed"
+      >
+        <View style={styles.completedCard}>
+          <View style={styles.completedIcon}>
+            <Text style={styles.completedEmoji}>🎉</Text>
+          </View>
 
-  const conversionRate =
-    visitCount >
-    0
-      ? (
-          (orderCount /
-            visitCount) *
-          100
-        ).toFixed(1)
-      : '0.0';
+          <Text style={styles.completedTitle}>
+            {rewardName ?? 'Reward Claimed'}: {rewardValue ?? ''}
+          </Text>
 
-  const remainingStops =
-    Math.max(
-      totalStops -
-        visitCount,
-      0
+          <Text style={styles.completedText}>
+            You have unlocked this reward: {rewardName ?? 'Reward Claimed'}
+          </Text>
+
+          {selectedStore ? (
+            <View style={styles.storePill}>
+              <Text style={styles.storePillText}>
+                📍 {selectedStore.name}
+              </Text>
+            </View>
+          ) : null}
+
+          <Pressable
+            style={styles.backButton}
+            onPress={() => router.replace('/(sales)')}
+          >
+            <Text style={styles.backButtonText}>
+              BACK TO HOME
+            </Text>
+          </Pressable>
+        </View>
+      </ScreenContainer>
     );
-
-  const selectedDate =
-    getDateKey(
-      new Date()
-    );
-
-  const routeVisits =
-    visits.filter(
-      (
-        visit
-      ) =>
-        visit.storeName
-    );
+  }
 
   /*
    * ==========================================================
@@ -866,30 +552,20 @@ export default function SalesHomeScreen() {
    */
 
   if (
-    !profile ||
-    loading &&
-      !dashboard
+    loadingRewards
   ) {
     return (
       <ScreenContainer
-        title={
-          profile
-            ? `Hi, ${firstName}`
-            : 'Loading...'
-        }
-        subtitle={
-          profile
-            ? 'Your sales activity at a glance'
-            : 'Preparing your dashboard'
-        }
+        title="Spin Wheel"
+        subtitle="Loading rewards..."
       >
         <View
           style={
-            styles.loadingContainer
+            styles.loadingCard
           }
         >
           <ActivityIndicator
-            size="small"
+            size="large"
             color="#2563eb"
           />
 
@@ -898,7 +574,7 @@ export default function SalesHomeScreen() {
               styles.loadingTitle
             }
           >
-            Loading your sales dashboard
+            Loading Rewards
           </Text>
 
           <Text
@@ -906,7 +582,7 @@ export default function SalesHomeScreen() {
               styles.loadingText
             }
           >
-            Reading live data from Supabase...
+            Getting the latest rewards...
           </Text>
         </View>
       </ScreenContainer>
@@ -915,44 +591,63 @@ export default function SalesHomeScreen() {
 
   /*
    * ==========================================================
-   * ADMIN
+   * ERROR
    * ==========================================================
    */
 
   if (
-    profile.role ===
-    'admin'
+    rewardError
   ) {
     return (
       <ScreenContainer
-        title="Admin"
-        subtitle="Opening dashboard..."
+        title="Spin Wheel"
+        subtitle="Unable to load rewards"
       >
         <View
           style={
-            styles.loadingContainer
+            styles.errorCard
           }
         >
-          <ActivityIndicator
-            size="small"
-            color="#2563eb"
-          />
-
           <Text
             style={
-              styles.loadingTitle
+              styles.errorEmoji
             }
           >
-            Opening Admin Dashboard
+            ⚠️
           </Text>
 
           <Text
             style={
-              styles.loadingText
+              styles.errorTitle
             }
           >
-            Redirecting...
+            Rewards Could Not Be Loaded
           </Text>
+
+          <Text
+            style={
+              styles.errorMessage
+            }
+          >
+            {rewardError}
+          </Text>
+
+          <Pressable
+            style={
+              styles.retryButton
+            }
+            onPress={
+              loadRewards
+            }
+          >
+            <Text
+              style={
+                styles.retryButtonText
+              }
+            >
+              TRY AGAIN
+            </Text>
+          </Pressable>
         </View>
       </ScreenContainer>
     );
@@ -960,1308 +655,1264 @@ export default function SalesHomeScreen() {
 
   /*
    * ==========================================================
-   * RENDER
+   * NO REWARDS
+   * ==========================================================
+   */
+
+  if (
+    rewards.length === 0
+  ) {
+    return (
+      <ScreenContainer
+        title="Spin Wheel"
+        subtitle="No rewards available"
+      >
+        <View
+          style={
+            styles.errorCard
+          }
+        >
+          <Text
+            style={
+              styles.errorEmoji
+            }
+          >
+            🎁
+          </Text>
+
+          <Text
+            style={
+              styles.errorTitle
+            }
+          >
+            No Active Rewards
+          </Text>
+
+          <Text
+            style={
+              styles.errorMessage
+            }
+          >
+            There are currently no active
+            rewards configured by the
+            administrator.
+          </Text>
+
+          <Pressable
+            style={
+              styles.retryButton
+            }
+            onPress={
+              loadRewards
+            }
+          >
+            <Text
+              style={
+                styles.retryButtonText
+              }
+            >
+              REFRESH
+            </Text>
+          </Pressable>
+        </View>
+      </ScreenContainer>
+    );
+  }
+
+  /*
+   * ==========================================================
+   * CANNOT SPIN
+   * ==========================================================
+   */
+
+  if (
+    !canSpin
+  ) {
+    return (
+      <ScreenContainer
+        title="Spin Wheel"
+        subtitle="Reward unavailable"
+      >
+        <View
+          style={
+            styles.lockedCard
+          }
+        >
+          <View
+            style={
+              styles.lockedIcon
+            }
+          >
+            <Text
+              style={
+                styles.lockedEmoji
+              }
+            >
+              🔒
+            </Text>
+          </View>
+
+          <Text
+            style={
+              styles.lockedTitle
+            }
+          >
+            Spin Not Available
+          </Text>
+
+          <Text
+            style={
+              styles.lockedText
+            }
+          >
+            Complete your store attendance
+            and confirm an order before
+            using the reward wheel.
+          </Text>
+
+          {!lastSubmission ? (
+            <View
+              style={
+                styles.statusBoxInfo
+              }
+            >
+              <Text
+                style={
+                  styles.statusTitleInfo
+                }
+              >
+                Attendance Required
+              </Text>
+
+              <Text
+                style={
+                  styles.statusTextInfo
+                }
+              >
+                Complete a store attendance
+                first.
+              </Text>
+            </View>
+          ) : null}
+
+          {!selectedStore ? (
+            <View
+              style={
+                styles.statusBoxInfo
+              }
+            >
+              <Text
+                style={
+                  styles.statusTitleInfo
+                }
+              >
+                Store Required
+              </Text>
+
+              <Text
+                style={
+                  styles.statusTextInfo
+                }
+              >
+                Select a store and complete
+                attendance first.
+              </Text>
+            </View>
+          ) : null}
+
+          {lastSubmission &&
+          selectedStore &&
+          orderPlaced !== true ? (
+            <View
+              style={
+                styles.statusBoxInfo
+              }
+            >
+              <Text
+                style={
+                  styles.statusTitleInfo
+                }
+              >
+                No Order Recorded
+              </Text>
+
+              <Text
+                style={
+                  styles.statusTextInfo
+                }
+              >
+                The Spin Wheel is only
+                available when an order was
+                placed.
+              </Text>
+            </View>
+          ) : null}
+
+          <Pressable
+            style={
+              styles.attendanceButton
+            }
+            onPress={() =>
+              router.replace(
+                '/(sales)'
+              )
+            }
+          >
+            <Text
+              style={
+                styles.attendanceButtonText
+              }
+            >
+              BACK TO HOME
+            </Text>
+          </Pressable>
+        </View>
+      </ScreenContainer>
+    );
+  }
+
+  /*
+   * ==========================================================
+   * SPIN FUNCTION
+   * ==========================================================
+   */
+
+  const spinWheel = async () => {
+    if (!canSpin) {
+      console.log(
+        'SPIN BLOCKED: canSpin = false'
+      );
+      return;
+    }
+
+    if (
+      spinning ||
+      wonReward ||
+      spinCompleted
+    ) {
+      console.log(
+        'SPIN BLOCKED: already spinning/completed'
+      );
+      return;
+    }
+
+    if (!lastSubmission?.attendanceId) {
+      Alert.alert(
+        'Attendance Required',
+        'No attendance ID was found. Please complete attendance again.'
+      );
+      return;
+    }
+
+    if (!selectedStore?.id) {
+      Alert.alert(
+        'Store Required',
+        'Please select a store first.'
+      );
+      return;
+    }
+
+    if (rewards.length === 0) {
+      Alert.alert(
+        'No Rewards',
+        'There are no active rewards available.'
+      );
+      return;
+    }
+
+    if (!event?.id) {
+      Alert.alert(
+        'Event Required',
+        'No active event was found. Please refresh and try again.'
+      );
+      return;
+    }
+
+    console.log(
+      '================================'
+    );
+    console.log(
+      'SPIN BUTTON PRESSED'
+    );
+    console.log(
+      'ATTENDANCE ID:',
+      lastSubmission.attendanceId
+    );
+    console.log(
+      'STORE ID:',
+      selectedStore.id
+    );
+    console.log(
+      'ORDER PLACED:',
+      orderPlaced
+    );
+    console.log(
+      '================================'
+    );
+
+    setSpinning(true);
+
+    try {
+      /*
+       * --------------------------------------------------------
+       * GET CURRENT GPS BEFORE ANIMATION
+       * --------------------------------------------------------
+       *
+       * We capture the GPS now so the database POST can happen
+       * immediately after the wheel animation finishes.
+       *
+       * Nothing is written to Supabase at this point.
+       */
+      const {
+        status,
+      } =
+        await Location.requestForegroundPermissionsAsync();
+
+      if (
+        status !==
+        Location.PermissionStatus.GRANTED
+      ) {
+        throw new Error(
+          'Location permission is required to complete the spin.'
+        );
+      }
+
+      const location =
+        await Location.getCurrentPositionAsync({
+          accuracy:
+            Location.Accuracy.High,
+        });
+
+      const latitude =
+        location.coords.latitude;
+
+      const longitude =
+        location.coords.longitude;
+
+      console.log(
+        'SPIN GPS CAPTURED:',
+        {
+          latitude,
+          longitude,
+        }
+      );
+
+      /*
+       * --------------------------------------------------------
+       * VISUAL SPIN ONLY
+       * --------------------------------------------------------
+       *
+       * IMPORTANT:
+       *
+       * We intentionally do NOT select a reward here.
+       *
+       * The wheel simply performs a visual spin to a random
+       * section. The actual reward is selected by PostgreSQL
+       * after the animation completes.
+       */
+      const visibleRewards =
+        rewards.slice(0, 4);
+
+      if (
+        visibleRewards.length === 0
+      ) {
+        throw new Error(
+          'No rewards are available for the wheel.'
+        );
+      }
+
+      const visualIndex =
+        Math.floor(
+          Math.random() *
+            visibleRewards.length
+        );
+
+      const sliceAngle =
+        360 /
+        4;
+
+      const selectedSliceCenter =
+        visualIndex *
+          sliceAngle +
+        sliceAngle / 2;
+
+      const targetRotation =
+        360 -
+        selectedSliceCenter;
+
+      const extraTurns =
+        360 * 6;
+
+      const finalDegree =
+        currentRotation.current +
+        extraTurns +
+        targetRotation;
+
+      console.log(
+        'VISUAL WHEEL INDEX:',
+        visualIndex
+      );
+
+      console.log(
+        'FINAL VISUAL ROTATION:',
+        finalDegree
+      );
+
+      /*
+       * --------------------------------------------------------
+       * ANIMATE
+       * --------------------------------------------------------
+       */
+      Animated.timing(
+        spinValue,
+        {
+          toValue:
+            finalDegree,
+          duration:
+            5000,
+          easing:
+            Easing.out(
+              Easing.cubic
+            ),
+          useNativeDriver:
+            true,
+        }
+      ).start(
+        async ({
+          finished,
+        }) => {
+          if (!finished) {
+            console.warn(
+              'SPIN ANIMATION DID NOT FINISH'
+            );
+
+            setSpinning(false);
+            return;
+          }
+
+          currentRotation.current =
+            finalDegree % 360;
+
+          console.log(
+            '================================'
+          );
+          console.log(
+            'WHEEL ANIMATION COMPLETE'
+          );
+          console.log(
+            'NOW CALLING DATABASE'
+          );
+          console.log(
+            'POST /rest/v1/rpc/request_spin'
+          );
+          console.log(
+            '================================'
+          );
+
+          try {
+            /*
+             * --------------------------------------------------
+             * DATABASE POST
+             * --------------------------------------------------
+             *
+             * THIS IS THE ONLY REWARD SUBMISSION.
+             *
+             * The call happens AFTER the wheel has completely
+             * finished spinning.
+             */
+            const result =
+              await submitCompletedReward({
+                attendanceId:
+                  lastSubmission.attendanceId,
+                eventId: event.id,
+                storeId:
+                  selectedStore.id,
+                latitude,
+                longitude,
+              });
+
+            /*
+             * --------------------------------------------------
+             * MATCH SERVER RESULT TO WHEEL
+             * --------------------------------------------------
+             *
+             * The database is authoritative.
+             * The returned UUID determines which reward won.
+             */
+            const serverReward =
+              visibleRewards.find(
+                (reward) =>
+                  reward.id ===
+                  result.rewardId
+              );
+
+            if (!serverReward) {
+              throw new Error(
+                'The database returned a reward that is not displayed on the wheel.'
+              );
+            }
+
+            /*
+             * --------------------------------------------------
+             * ALIGN THE WHEEL TO THE REAL SERVER WINNER
+             * --------------------------------------------------
+             *
+             * The first animation above was only a visual spin.
+             * The database is authoritative.
+             *
+             * If the random visual stop did not land on the
+             * database-selected reward, perform a short final
+             * alignment animation to the actual winning slice.
+             */
+            const serverRewardIndex =
+              visibleRewards.findIndex(
+                (reward) =>
+                  reward.id ===
+                  result.rewardId
+              );
+
+            if (
+              serverRewardIndex >= 0
+            ) {
+              const serverSliceCenter =
+                serverRewardIndex *
+                  sliceAngle +
+                sliceAngle / 2;
+
+              const serverTargetRotation =
+                360 -
+                serverSliceCenter;
+
+              const currentNormalized =
+                currentRotation.current;
+
+              let alignmentDelta =
+                serverTargetRotation -
+                currentNormalized;
+
+              if (
+                alignmentDelta < 0
+              ) {
+                alignmentDelta +=
+                  360;
+              }
+
+              const alignmentDegree =
+                currentRotation.current +
+                alignmentDelta;
+
+              await new Promise<void>(
+                (resolve) => {
+                  Animated.timing(
+                    spinValue,
+                    {
+                      toValue:
+                        alignmentDegree,
+                      duration: 800,
+                      easing:
+                        Easing.out(
+                          Easing.cubic
+                        ),
+                      useNativeDriver:
+                        true,
+                    }
+                  ).start(
+                    ({
+                      finished:
+                        alignmentFinished,
+                    }) => {
+                      if (
+                        alignmentFinished
+                      ) {
+                        currentRotation.current =
+                          alignmentDegree %
+                          360;
+                      }
+
+                      resolve();
+                    }
+                  );
+                }
+              );
+            }
+
+            /*
+             * --------------------------------------------------
+             * SAVE REAL DATABASE RESULT
+             * --------------------------------------------------
+             */
+            setLastSpin({
+              spinId:
+                result.spinId,
+
+              status:
+                result.status,
+
+              reward: {
+                id:
+                  result.rewardId,
+
+                name:
+                  result.rewardName,
+
+                value:
+                  result.rewardValue,
+              },
+
+              rejectionReason:
+                result.rejectionReason,
+            });
+
+            /*
+             * Only mark the frontend flow complete AFTER
+             * the database has successfully accepted the spin.
+             */
+            setWonReward(
+              resolvedReward
+            );
+
+            setSpinCompleted(
+              true
+            );
+
+            setSpinning(
+              false
+            );
+
+            console.log(
+              '================================'
+            );
+            console.log(
+              'DATABASE SPIN COMPLETED'
+            );
+            console.log(
+              'SPIN ID:',
+              result.spinId
+            );
+            console.log(
+              'REWARD ID:',
+              result.rewardId
+            );
+            console.log(
+              'REWARD:',
+              result.rewardName
+            );
+            console.log(
+              '================================'
+            );
+          } catch (
+            error
+          ) {
+            console.error(
+              'request_spin ERROR:',
+              error
+            );
+
+            setSpinning(false);
+
+            Alert.alert(
+              'Reward Submission Failed',
+              error instanceof Error
+                ? error.message
+                : 'The wheel finished, but the reward could not be recorded.'
+            );
+          }
+        }
+      );
+    } catch (
+      error
+    ) {
+      console.error(
+        'SPIN ERROR:',
+        error
+      );
+
+      setSpinning(false);
+
+      Alert.alert(
+        'Spin Failed',
+        error instanceof Error
+          ? error.message
+          : 'Unable to complete the spin.'
+      );
+    }
+  };
+
+  /*
+   * ==========================================================
+   * ROTATION
+   * ==========================================================
+   */
+
+  const spinInterpolation =
+    spinValue.interpolate({
+      inputRange: [
+        0,
+        360,
+      ],
+
+      outputRange: [
+        '0deg',
+        '360deg',
+      ],
+    });
+
+  /*
+   * ==========================================================
+   * MAIN SCREEN
    * ==========================================================
    */
 
   return (
     <ScreenContainer
-      title={`Hi, ${firstName}`}
-      subtitle="Your sales activity at a glance"
+      title="Spin Wheel"
+      subtitle="Spin to win your reward"
     >
-      <ScrollView
-        showsVerticalScrollIndicator={
-          false
-        }
-        refreshControl={
-          <RefreshControl
-            refreshing={
-              refreshing
-            }
-            onRefresh={() => {
-              loadDashboard(
-                true
-              );
-
-              loadRewardMode();
-            }}
-          />
-        }
-        contentContainerStyle={
-          styles.container
+      <View
+        style={
+          styles.wheelCard
         }
       >
-        {/* ====================================================
-         * HERO
-         * ==================================================== */}
+        {/* ================================================== */}
+        {/* DATABASE BADGE */}
+        {/* ================================================== */}
 
         <View
           style={
-            styles.hero
+            styles.databaseBadge
           }
         >
           <View
             style={
-              styles.heroTopRow
-            }
-          >
-            <View
-              style={
-                styles.heroText
-              }
-            >
-              <Text
-                style={
-                  styles.heroEyebrow
-                }
-              >
-                TODAY
-              </Text>
-
-              <Text
-                style={
-                  styles.heroTitle
-                }
-              >
-                Ready to make a visit?
-              </Text>
-
-              <Text
-                style={
-                  styles.heroSubtitle
-                }
-              >
-                Check in at a store and{' '}
-                {rewardEnabled
-                  ? "unlock today's reward."
-                  : "record today's order."}
-              </Text>
-            </View>
-
-            <View
-              style={
-                styles.heroOrb
-              }
-            >
-              <View
-                style={
-                  styles.heroOrbInner
-                }
-              >
-                <Text
-                  style={
-                    styles.heroOrbText
-                  }
-                >
-                  S
-                </Text>
-              </View>
-            </View>
-          </View>
-
-          <View
-            style={
-              styles.heroDivider
+              styles.databaseDot
             }
           />
-
-          <View
-            style={
-              styles.heroBottom
-            }
-          >
-            <View>
-              <Text
-                style={
-                  styles.heroSmallLabel
-                }
-              >
-                CURRENT STATUS
-              </Text>
-
-              <Text
-                style={
-                  styles.heroStatus
-                }
-              >
-                {spinCompleted
-                  ? 'Reward completed'
-                  : lastSubmission
-                    ? orderPlaced
-                      ? 'Order recorded'
-                      : 'Visit completed'
-                    : 'Ready for attendance'}
-              </Text>
-            </View>
-
-            <View
-              style={[
-                styles.statusDot,
-                spinCompleted
-                  ? styles.statusDotComplete
-                  : lastSubmission
-                    ? styles.statusDotActive
-                    : styles.statusDotReady,
-              ]}
-            />
-          </View>
-        </View>
-
-        {/* ====================================================
-         * REWARD STATUS
-         * ==================================================== */}
-
-        {!rewardModeLoading ? (
-          <View
-            style={[
-              styles.rewardBanner,
-              rewardEnabled
-                ? styles.rewardBannerOn
-                : styles.rewardBannerOff,
-            ]}
-          >
-            <View
-              style={[
-                styles.rewardBannerIcon,
-                rewardEnabled
-                  ? styles.rewardBannerIconOn
-                  : styles.rewardBannerIconOff,
-              ]}
-            >
-              <Text
-                style={[
-                  styles.rewardBannerIconText,
-                  rewardEnabled
-                    ? styles.rewardBannerIconTextOn
-                    : styles.rewardBannerIconTextOff,
-                ]}
-              >
-                {rewardEnabled
-                  ? '✓'
-                  : '—'}
-              </Text>
-            </View>
-
-            <View
-              style={
-                styles.rewardBannerContent
-              }
-            >
-              <Text
-                style={[
-                  styles.rewardBannerTitle,
-                  rewardEnabled
-                    ? styles.rewardBannerTitleOn
-                    : styles.rewardBannerTitleOff,
-                ]}
-              >
-                {rewardEnabled
-                  ? 'REWARD SYSTEM ACTIVE'
-                  : 'REWARD SYSTEM PAUSED'}
-              </Text>
-
-              <Text
-                style={
-                  styles.rewardBannerText
-                }
-              >
-                {rewardEnabled
-                  ? 'Orders can continue to the Spin Wheel.'
-                  : 'Orders are still recorded, but the reward step is skipped.'}
-              </Text>
-            </View>
-          </View>
-        ) : null}
-
-        {/* ====================================================
-         * TODAY'S PROGRESS
-         * ==================================================== */}
-
-        <View
-          style={
-            styles.sectionHeader
-          }
-        >
-          <View>
-            <Text
-              style={
-                styles.sectionEyebrow
-              }
-            >
-              TODAY'S PROGRESS
-            </Text>
-
-            <Text
-              style={
-                styles.sectionTitle
-              }
-            >
-              Field activity
-            </Text>
-          </View>
-
-          <View
-            style={
-              styles.liveBadge
-            }
-          >
-            <View
-              style={
-                styles.liveBadgeDot
-              }
-            />
-
-            <Text
-              style={
-                styles.liveBadgeText
-              }
-            >
-              LIVE
-            </Text>
-          </View>
-        </View>
-
-        <View
-          style={
-            styles.progressCard
-          }
-        >
-          <View
-            style={
-              styles.progressTop
-            }
-          >
-            <View>
-              <Text
-                style={
-                  styles.progressLabel
-                }
-              >
-                STORE VISITS
-              </Text>
-
-              <View
-                style={
-                  styles.progressCountRow
-                }
-              >
-                <Text
-                  style={
-                    styles.progressCount
-                  }
-                >
-                  {
-                    visitCount
-                  }
-                </Text>
-
-                <Text
-                  style={
-                    styles.progressTotal
-                  }
-                >
-                  {' '}
-                  / {totalStops}
-                </Text>
-              </View>
-            </View>
-
-            <Text
-              style={
-                styles.progressPercent
-              }
-            >
-              {totalStops >
-              0
-                ? Math.round(
-                    (visitCount /
-                      totalStops) *
-                      100
-                  )
-                : 0}
-              %
-            </Text>
-          </View>
-
-          <View
-            style={
-              styles.progressTrack
-            }
-          >
-            <View
-              style={[
-                styles.progressFill,
-                {
-                  width: `${
-                    totalStops >
-                    0
-                      ? Math.min(
-                          (visitCount /
-                            totalStops) *
-                            100,
-                          100
-                        )
-                      : 0
-                  }%`,
-                },
-              ]}
-            />
-          </View>
-
-          <View
-            style={
-              styles.progressBottom
-            }
-          >
-            <View
-              style={
-                styles.progressStat
-              }
-            >
-              <Text
-                style={
-                  styles.progressStatValue
-                }
-              >
-                {
-                  orderCount
-                }
-              </Text>
-
-              <Text
-                style={
-                  styles.progressStatLabel
-                }
-              >
-                ORDERS
-              </Text>
-            </View>
-
-            <View
-              style={
-                styles.progressStat
-              }
-            >
-              <Text
-                style={
-                  styles.progressStatValue
-                }
-              >
-                {
-                  conversionRate
-                }
-                %
-              </Text>
-
-              <Text
-                style={
-                  styles.progressStatLabel
-                }
-              >
-                CONVERSION
-              </Text>
-            </View>
-
-            <View
-              style={
-                styles.progressStat
-              }
-            >
-              <Text
-                style={
-                  styles.progressStatValue
-                }
-              >
-                {
-                  remainingStops
-                }
-              </Text>
-
-              <Text
-                style={
-                  styles.progressStatLabel
-                }
-              >
-                REMAINING
-              </Text>
-            </View>
-          </View>
-        </View>
-
-        {/* ====================================================
-         * QUICK ACTIONS
-         * ==================================================== */}
-
-        <Text
-          style={
-            styles.sectionLabel
-          }
-        >
-          QUICK ACTIONS
-        </Text>
-
-        <View
-          style={
-            styles.actionGrid
-          }
-        >
-          {/* CHECK IN */}
-
-          <Pressable
-            style={({ pressed }) => [
-              styles.actionCard,
-              pressed &&
-                styles.pressed,
-            ]}
-            onPress={() =>
-              router.push(
-                '/(sales)/stores'
-              )
-            }
-          >
-            <View
-              style={[
-                styles.actionIcon,
-                styles.actionIconBlue,
-              ]}
-            >
-              <Text
-                style={
-                  styles.actionIconText
-                }
-              >
-                +
-              </Text>
-            </View>
-
-            <Text
-              style={
-                styles.actionTitle
-              }
-            >
-              Check In
-            </Text>
-
-            <Text
-              style={
-                styles.actionSubtitle
-              }
-            >
-              Start a store visit
-            </Text>
-
-            <View
-              style={
-                styles.actionArrow
-              }
-            >
-              <Text
-                style={
-                  styles.arrowText
-                }
-              >
-                →
-              </Text>
-            </View>
-          </Pressable>
-
-          {/* ADD STORE */}
-
-          <Pressable
-            style={({ pressed }) => [
-              styles.actionCard,
-              pressed &&
-                styles.pressed,
-            ]}
-            onPress={() =>
-              router.push(
-                '/(sales)/add-store'
-              )
-            }
-          >
-            <View
-              style={[
-                styles.actionIcon,
-                styles.actionIconDark,
-              ]}
-            >
-              <Text
-                style={
-                  styles.storeIcon
-                }
-              >
-                +
-              </Text>
-            </View>
-
-            <Text
-              style={
-                styles.actionTitle
-              }
-            >
-              Add Store
-            </Text>
-
-            <Text
-              style={
-                styles.actionSubtitle
-              }
-            >
-              Register a new customer
-            </Text>
-
-            <View
-              style={
-                styles.actionArrow
-              }
-            >
-              <Text
-                style={
-                  styles.arrowText
-                }
-              >
-                →
-              </Text>
-            </View>
-          </Pressable>
-        </View>
-
-        {/* ====================================================
-         * TODAY'S ROUTE
-         * ==================================================== */}
-
-        <View
-          style={
-            styles.routeHeader
-          }
-        >
-          <View>
-            <Text
-              style={
-                styles.sectionLabelSmall
-              }
-            >
-              FIELD ROUTE
-            </Text>
-
-            <Text
-              style={
-                styles.routeTitle
-              }
-            >
-              Today's route
-            </Text>
-          </View>
 
           <Text
             style={
-              styles.routeLiveText
+              styles.databaseBadgeText
             }
           >
-            {routeVisits.length} STOPS
+            LIVE REWARDS
           </Text>
         </View>
 
+        {/* ================================================== */}
+        {/* ATTENDANCE */}
+        {/* ================================================== */}
+
         <View
           style={
-            styles.routeCard
+            styles.attendanceBadge
           }
         >
-          {routeVisits.length ===
-          0 ? (
-            <View
-              style={
-                styles.emptyRoute
-              }
-            >
-              <View
-                style={
-                  styles.emptyRouteIcon
-                }
-              >
-                <Text
-                  style={
-                    styles.emptyRouteIconText
-                  }
-                >
-                  —
-                </Text>
-              </View>
-
-              <Text
-                style={
-                  styles.emptyRouteTitle
-                }
-              >
-                No visits recorded today
-              </Text>
-
-              <Text
-                style={
-                  styles.emptyRouteText
-                }
-              >
-                Your completed store visits will
-                appear here automatically.
-              </Text>
-            </View>
-          ) : (
-            <>
-              <View
-                style={
-                  styles.routeSummary
-                }
-              >
-                <View
-                  style={
-                    styles.routeSummaryIcon
-                  }
-                >
-                  <Text
-                    style={
-                      styles.routeSummaryIconText
-                    }
-                  >
-                    R
-                  </Text>
-                </View>
-
-                <View
-                  style={
-                    styles.routeSummaryText
-                  }
-                >
-                  <Text
-                    style={
-                      styles.routeSummaryTitle
-                    }
-                  >
-                    {
-                      routeVisits.length
-                    }{' '}
-                    recorded stops
-                  </Text>
-
-                  <Text
-                    style={
-                      styles.routeSummarySubtitle
-                    }
-                  >
-                    Live attendance route for{' '}
-                    {
-                      selectedDate
-                    }
-                  </Text>
-                </View>
-              </View>
-
-              <View
-                style={
-                  styles.timeline
-                }
-              >
-                {routeVisits.map(
-                  (
-                    visit,
-                    index
-                  ) => {
-                    const last =
-                      index ===
-                      routeVisits.length -
-                        1;
-
-                    return (
-                      <View
-                        key={
-                          visit.id
-                        }
-                        style={
-                          styles.timelineRow
-                        }
-                      >
-                        <View
-                          style={
-                            styles.timelineRail
-                          }
-                        >
-                          <View
-                            style={[
-                              styles.timelineDot,
-                              visit.orderPlaced &&
-                                styles.timelineDotOrder,
-                            ]}
-                          />
-
-                          {!last ? (
-                            <View
-                              style={
-                                styles.timelineLine
-                              }
-                            />
-                          ) : null}
-                        </View>
-
-                        <View
-                          style={
-                            styles.timelineContent
-                          }
-                        >
-                          <View
-                            style={
-                              styles.timelineMain
-                            }
-                          >
-                            <View
-                              style={
-                                styles.timelineStoreContainer
-                              }
-                            >
-                              <Text
-                                style={
-                                  styles.timelineStore
-                                }
-                                numberOfLines={
-                                  2
-                                }
-                              >
-                                {
-                                  visit.storeName
-                                }
-                              </Text>
-
-                              {visit.storeCode ? (
-                                <Text
-                                  style={
-                                    styles.timelineCode
-                                  }
-                                >
-                                  {
-                                    visit.storeCode
-                                  }
-                                </Text>
-                              ) : null}
-                            </View>
-
-                            <Text
-                              style={
-                                styles.timelineTime
-                              }
-                            >
-                              {
-                                visit.time
-                              }
-                            </Text>
-                          </View>
-
-                          <View
-                            style={
-                              styles.timelineMetaRow
-                            }
-                          >
-                            <Text
-                              style={
-                                styles.timelineMeta
-                              }
-                            >
-                              {visit.orderPlaced
-                                ? 'Order recorded'
-                                : 'Visit recorded'}
-                            </Text>
-
-                            {visit.orderPlaced ? (
-                              <View
-                                style={
-                                  styles.orderMiniBadge
-                                }
-                              >
-                                <Text
-                                  style={
-                                    styles.orderMiniBadgeText
-                                  }
-                                >
-                                  ORDER
-                                </Text>
-                              </View>
-                            ) : null}
-                          </View>
-                        </View>
-                      </View>
-                    );
-                  }
-                )}
-              </View>
-
-              <Pressable
-                style={
-                  styles.fullRouteButton
-                }
-                onPress={() =>
-                  router.push(
-                    '/admin/routes'
-                  )
-                }
-              >
-                <Text
-                  style={
-                    styles.fullRouteButtonText
-                  }
-                >
-                  VIEW ROUTE
-                </Text>
-
-                <Text
-                  style={
-                    styles.fullRouteArrow
-                  }
-                >
-                  →
-                </Text>
-              </Pressable>
-            </>
-          )}
+          <Text
+            style={
+              styles.attendanceBadgeText
+            }
+          >
+            ✓ ATTENDANCE COMPLETE
+          </Text>
         </View>
 
-        {/* ====================================================
-         * CURRENT VISIT
-         * ==================================================== */}
+        {/* ================================================== */}
+        {/* STORE */}
+        {/* ================================================== */}
 
-        {lastSubmission ? (
-          <>
+        {selectedStore ? (
+          <View
+            style={
+              styles.storePill
+            }
+          >
             <Text
               style={
-                styles.sectionLabel
+                styles.storePillText
               }
             >
-              CURRENT VISIT
+              📍 {selectedStore.name}
             </Text>
+          </View>
+        ) : null}
 
+        {/* ================================================== */}
+        {/* ORDER */}
+        {/* ================================================== */}
+
+        <View
+          style={
+            styles.orderBadge
+          }
+        >
+          <Text
+            style={
+              styles.orderBadgeText
+            }
+          >
+            🛒 ORDER PLACED
+          </Text>
+        </View>
+
+        {/* ================================================== */}
+        {/* POINTER */}
+        {/* ================================================== */}
+
+        <View
+          style={
+            styles.pointerContainer
+          }
+        >
+          <View
+            style={
+              styles.pointerOuter
+            }
+          >
             <View
               style={
-                styles.visitCard
+                styles.pointerInner
               }
-            >
-              <View
-                style={
-                  styles.visitHeader
+            />
+          </View>
+        </View>
+
+        {/* ================================================== */}
+        {/* WHEEL */}
+        {/* ================================================== */}
+
+        <View
+          style={
+            styles.wheelWrapper
+          }
+        >
+          <Animated.View
+            style={[
+              styles.wheelContainer,
+              {
+                transform: [
+                  {
+                    rotate:
+                      spinInterpolation,
+                  },
+                ],
+              },
+            ]}
+          >
+            {/*
+             * =================================================
+             * FOUR EQUAL SECTIONS
+             * =================================================
+             *
+             * IMPORTANT:
+             *
+             * Every section has exactly the same dimensions.
+             *
+             * Probability does NOT affect this.
+             */}
+
+            {[
+              0,
+              1,
+              2,
+              3,
+            ].map(
+              (
+                index
+              ) => {
+                const reward =
+                  rewards[
+                    index
+                  ];
+
+                if (
+                  !reward
+                ) {
+                  return (
+                    <View
+                      key={`empty-${index}`}
+                      style={[
+                        styles.quadrant,
+                        getQuadrantStyle(
+                          index
+                        ),
+                        styles.emptyQuadrant,
+                      ]}
+                    />
+                  );
                 }
-              >
-                <View
-                  style={
-                    styles.visitHeaderLeft
-                  }
-                >
+
+                return (
                   <View
-                    style={
-                      styles.liveIndicator
+                    key={
+                      reward.id
                     }
+                    style={[
+                      styles.quadrant,
+                      getQuadrantStyle(
+                        index
+                      ),
+                      {
+                        backgroundColor:
+                          reward.color,
+                      },
+                    ]}
                   >
                     <View
                       style={
-                        styles.liveDot
-                      }
-                    />
-                  </View>
-
-                  <View>
-                    <Text
-                      style={
-                        styles.visitEyebrow
+                        styles.rewardLabelContainer
                       }
                     >
-                      VISIT ACTIVE
-                    </Text>
-
-                    <Text
-                      style={
-                        styles.visitTitle
-                      }
-                    >
-                      {selectedStore?.name ??
-                        'Store Visit'}
-                    </Text>
+                      <Text
+                        numberOfLines={
+                          2
+                        }
+                        adjustsFontSizeToFit
+                        style={[
+                          styles.quadrantText,
+                          getQuadrantTextStyle(
+                            index
+                          ),
+                        ]}
+                      >
+                        {
+                          reward.name
+                        }
+                      </Text>
+                    </View>
                   </View>
-                </View>
+                );
+              }
+            )}
 
-                <View
-                  style={
-                    styles.checkCircle
-                  }
-                >
-                  <Text
-                    style={
-                      styles.checkText
-                    }
-                  >
-                    ✓
-                  </Text>
-                </View>
-              </View>
+            {/* ================================================= */}
+            {/* DIVIDERS */}
+            {/* ================================================= */}
 
-              <View
+            <View
+              style={
+                styles.verticalLine
+              }
+            />
+
+            <View
+              style={
+                styles.horizontalLine
+              }
+            />
+          </Animated.View>
+
+          {/* ================================================= */}
+          {/* CENTER */}
+          {/* ================================================= */}
+
+          <View
+            style={
+              styles.wheelCenterOuter
+            }
+          >
+            <View
+              style={
+                styles.wheelCenterInner
+              }
+            >
+              <Text
                 style={
-                  styles.visitInfoRow
+                  styles.centerCapEmoji
                 }
               >
-                <View
-                  style={
-                    styles.visitInfo
-                  }
-                >
-                  <Text
-                    style={
-                      styles.visitInfoLabel
-                    }
-                  >
-                    ATTENDANCE
-                  </Text>
-
-                  <Text
-                    style={
-                      styles.visitInfoValue
-                    }
-                  >
-                    Submitted
-                  </Text>
-                </View>
-
-                <View
-                  style={
-                    styles.visitInfo
-                  }
-                >
-                  <Text
-                    style={
-                      styles.visitInfoLabel
-                    }
-                  >
-                    ORDER
-                  </Text>
-
-                  <Text
-                    style={[
-                      styles.visitInfoValue,
-                      orderPlaced
-                        ? styles.orderGreen
-                        : styles.orderGray,
-                    ]}
-                  >
-                    {orderPlaced ===
-                    null
-                      ? '—'
-                      : orderPlaced
-                        ? 'YES'
-                        : 'NO'}
-                  </Text>
-                </View>
-              </View>
-
-              {orderPlaced !==
-              null ? (
-                <View
-                  style={[
-                    styles.orderBanner,
-                    orderPlaced
-                      ? styles.orderBannerYes
-                      : styles.orderBannerNo,
-                  ]}
-                >
-                  <View
-                    style={[
-                      styles.orderBannerIcon,
-                      orderPlaced
-                        ? styles.orderBannerIconYes
-                        : styles.orderBannerIconNo,
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.orderBannerIconText,
-                        orderPlaced
-                          ? styles.orderBannerIconTextYes
-                          : styles.orderBannerIconTextNo,
-                      ]}
-                    >
-                      {orderPlaced
-                        ? '✓'
-                        : '—'}
-                    </Text>
-                  </View>
-
-                  <View
-                    style={
-                      styles.orderBannerContent
-                    }
-                  >
-                    <Text
-                      style={[
-                        styles.orderBannerTitle,
-                        orderPlaced
-                          ? styles.orderBannerTitleYes
-                          : styles.orderBannerTitleNo,
-                      ]}
-                    >
-                      {orderPlaced
-                        ? 'Order recorded'
-                        : 'No order recorded'}
-                    </Text>
-
-                    <Text
-                      style={
-                        styles.orderBannerText
-                      }
-                    >
-                      {orderPlaced
-                        ? rewardModeLoading
-                          ? 'Checking reward availability...'
-                          : rewardEnabled
-                            ? 'This visit qualifies for the reward wheel.'
-                            : 'The order was recorded. Rewards are currently paused.'
-                        : 'No reward spin is available for this visit.'}
-                    </Text>
-                  </View>
-                </View>
-              ) : null}
-
-              {/* REWARD ACTIVE */}
-
-              {orderPlaced ===
-                true &&
-              rewardEnabled &&
-              !rewardModeLoading &&
-              !spinCompleted ? (
-                <PrimaryButton
-                  title="OPEN REWARD WHEEL"
-                  onPress={() =>
-                    router.push(
-                      '/(sales)/spin'
-                    )
-                  }
-                  style={
-                    styles.spinButton
-                  }
-                />
-              ) : null}
-
-              {/* REWARD OFF */}
-
-              {orderPlaced ===
-                true &&
-              !rewardEnabled &&
-              !rewardModeLoading &&
-              !spinCompleted ? (
-                <View
-                  style={
-                    styles.rewardPausedStrip
-                  }
-                >
-                  <View
-                    style={
-                      styles.rewardPausedBadge
-                    }
-                  >
-                    <Text
-                      style={
-                        styles.rewardPausedBadgeText
-                      }
-                    >
-                      —
-                    </Text>
-                  </View>
-
-                  <View
-                    style={
-                      styles.rewardPausedContent
-                    }
-                  >
-                    <Text
-                      style={
-                        styles.rewardPausedTitle
-                      }
-                    >
-                      Order completed
-                    </Text>
-
-                    <Text
-                      style={
-                        styles.rewardPausedText
-                      }
-                    >
-                      Rewards are currently paused.
-                      Your order has still been
-                      recorded.
-                    </Text>
-                  </View>
-                </View>
-              ) : null}
-
-              {/* COMPLETED */}
-
-              {spinCompleted ? (
-                <View
-                  style={
-                    styles.completedStrip
-                  }
-                >
-                  <View
-                    style={
-                      styles.completedBadge
-                    }
-                  >
-                    <Text
-                      style={
-                        styles.completedBadgeText
-                      }
-                    >
-                      ✓
-                    </Text>
-                  </View>
-
-                  <View
-                    style={
-                      styles.completedContent
-                    }
-                  >
-                    <Text
-                      style={
-                        styles.completedTitle
-                      }
-                    >
-                      Reward claimed
-                    </Text>
-
-                    <Text
-                      style={
-                        styles.completedText
-                      }
-                    >
-                      This visit has been completed.
-                    </Text>
-                  </View>
-                </View>
-              ) : null}
+                🎁
+              </Text>
             </View>
-          </>
+          </View>
+        </View>
+
+        {/* ================================================== */}
+        {/* RESULT */}
+        {/* ================================================== */}
+
+        {wonReward ? (
+          <View
+            style={[
+              styles.resultCard,
+              {
+                borderColor:
+                  wonReward.color,
+              },
+            ]}
+          >
+            <View
+              style={[
+                styles.resultIcon,
+                {
+                  backgroundColor:
+                    `${wonReward.color}18`,
+                },
+              ]}
+            >
+              <Text
+                style={
+                  styles.resultEmoji
+                }
+              >
+                🎉
+              </Text>
+            </View>
+
+            <Text
+              style={[
+                styles.resultBadgeText,
+                {
+                  color:
+                    wonReward.color,
+                },
+              ]}
+            >
+              {
+                wonReward.name
+              }
+            </Text>
+
+            <Text
+              style={
+                styles.resultUnlocked
+              }
+            >
+              REWARD UNLOCKED
+            </Text>
+
+            <Text
+              style={
+                styles.resultMessage
+              }
+            >
+              You won:
+              {' '}
+              {
+                wonReward.value
+              }
+            </Text>
+
+            <View
+              style={
+                styles.codeContainer
+              }
+            >
+              <Text
+                style={
+                  styles.codeLabel
+                }
+              >
+                REWARD VALUE
+              </Text>
+
+              <Text
+                style={
+                  styles.codeValue
+                }
+              >
+                {
+                  wonReward.value
+                }
+              </Text>
+            </View>
+          </View>
+        ) : (
+          <View
+            style={
+              styles.hintCard
+            }
+          >
+            <Text
+              style={
+                styles.hintIcon
+              }
+            >
+              ✨
+            </Text>
+
+            <View
+              style={
+                styles.hintContent
+              }
+            >
+              <Text
+                style={
+                  styles.hintTitle
+                }
+              >
+                Ready to spin?
+              </Text>
+
+              <Text
+                style={
+                  styles.hint
+                }
+              >
+                Order confirmed. Spin the
+                wheel to reveal your reward.
+              </Text>
+            </View>
+          </View>
+        )}
+
+        {/* ================================================== */}
+        {/* SPIN BUTTON */}
+        {/* ================================================== */}
+
+        <Pressable
+          style={[
+            styles.spinButton,
+            (spinning ||
+              wonReward !== null) &&
+              styles.spinButtonDisabled,
+          ]}
+          onPress={
+            spinWheel
+          }
+          disabled={
+            spinning ||
+            wonReward !== null
+          }
+        >
+          {spinning ? (
+            <>
+              <ActivityIndicator
+                size="small"
+                color="#ffffff"
+              />
+
+              <Text
+                style={
+                  styles.spinButtonText
+                }
+              >
+                SPINNING...
+              </Text>
+            </>
+          ) : (
+            <Text
+              style={
+                styles.spinButtonText
+              }
+            >
+              {wonReward
+                ? 'SPIN COMPLETED'
+                : 'SPIN WHEEL'}
+            </Text>
+          )}
+        </Pressable>
+
+        {/* ================================================== */}
+        {/* CLAIM REWARD */}
+        {/* ================================================== */}
+
+        {wonReward ? (
+          <Pressable
+            style={
+              styles.resultRouteButton
+            }
+            onPress={() =>
+              router.push(
+                '/(sales)/spin/result'
+              )
+            }
+          >
+            <Text
+              style={
+                styles.resultRouteButtonText
+              }
+            >
+              CLAIM REWARD
+            </Text>
+
+            <Text
+              style={
+                styles.resultRouteArrow
+              }
+            >
+              →
+            </Text>
+          </Pressable>
         ) : null}
 
-        {/* ====================================================
-         * HISTORY
-         * ==================================================== */}
+        {/* ================================================== */}
+        {/* FOOTER */}
+        {/* ================================================== */}
 
         <Text
           style={
-            styles.sectionLabel
+            styles.databaseNote
           }
         >
-          ACTIVITY
+          Rewards are configured by the administrator.
         </Text>
-
-        <Pressable
-          style={({ pressed }) => [
-            styles.historyCard,
-            pressed &&
-              styles.pressed,
-          ]}
-          onPress={() =>
-            router.push(
-              '/(sales)/history'
-            )
-          }
-        >
-          <View
-            style={
-              styles.historyIcon
-            }
-          >
-            <Text
-              style={
-                styles.historyIconText
-              }
-            >
-              ↗
-            </Text>
-          </View>
-
-          <View
-            style={
-              styles.historyContent
-            }
-          >
-            <Text
-              style={
-                styles.historyTitle
-              }
-            >
-              Visit History
-            </Text>
-
-            <Text
-              style={
-                styles.historyText
-              }
-            >
-              Review previous visits and orders
-            </Text>
-          </View>
-
-          <Text
-            style={
-              styles.historyArrow
-            }
-          >
-            →
-          </Text>
-        </Pressable>
-
-        {/* ====================================================
-         * SIGN OUT
-         * ==================================================== */}
-
-        <Pressable
-          style={({ pressed }) => [
-            styles.signOutButton,
-            pressed &&
-              styles.pressed,
-          ]}
-          onPress={
-            signOut
-          }
-        >
-          <Text
-            style={
-              styles.signOutText
-            }
-          >
-            Sign out
-          </Text>
-        </Pressable>
-
-        {/* ====================================================
-         * FOOTER
-         * ==================================================== */}
-
-        <View
-          style={
-            styles.footer
-          }
-        >
-          <View
-            style={
-              styles.footerDot
-            }
-          />
-
-          <Text
-            style={
-              styles.footerText
-            }
-          >
-            Attendance, orders and rewards are
-            connected to the live database.
-          </Text>
-        </View>
-      </ScrollView>
+      </View>
     </ScreenContainer>
   );
+}
+
+/*
+ * ============================================================
+ * QUADRANT POSITION
+ * ============================================================
+ *
+ * 0 = TOP RIGHT
+ * 1 = BOTTOM RIGHT
+ * 2 = BOTTOM LEFT
+ * 3 = TOP LEFT
+ *
+ * Every quadrant is exactly:
+ *
+ * WHEEL_SIZE / 2
+ *
+ * ============================================================
+ */
+
+function getQuadrantStyle(
+  index: number
+) {
+  switch (
+    index % 4
+  ) {
+    case 0:
+      return styles.quadrantTR;
+
+    case 1:
+      return styles.quadrantBR;
+
+    case 2:
+      return styles.quadrantBL;
+
+    case 3:
+    default:
+      return styles.quadrantTL;
+  }
+}
+
+/*
+ * ============================================================
+ * TEXT ROTATION
+ * ============================================================
+ */
+
+function getQuadrantTextStyle(
+  index: number
+) {
+  switch (
+    index % 4
+  ) {
+    case 0:
+      return styles.quadrantTextTR;
+
+    case 1:
+      return styles.quadrantTextBR;
+
+    case 2:
+      return styles.quadrantTextBL;
+
+    case 3:
+    default:
+      return styles.quadrantTextTL;
+  }
 }
 
 /*
@@ -2272,1337 +1923,1030 @@ export default function SalesHomeScreen() {
 
 const styles =
   StyleSheet.create({
-    container: {
-      paddingBottom: 35,
-    },
-
     /*
+     * ========================================================
      * LOADING
+     * ========================================================
      */
 
-    loadingContainer: {
+    loadingCard: {
       flex: 1,
       alignItems:
         'center',
       justifyContent:
         'center',
-      paddingVertical:
-        80,
+      backgroundColor:
+        '#ffffff',
+      borderRadius:
+        24,
+      borderWidth:
+        1,
+      borderColor:
+        '#e2e8f0',
+      padding: 30,
     },
 
     loadingTitle: {
-      fontSize: 15,
-      fontWeight:
-        '900',
-      color:
-        '#111827',
-      marginTop: 14,
-      marginBottom: 5,
-    },
-
-    loadingText: {
-      fontSize: 10,
-      color:
-        '#94a3b8',
-      textAlign:
-        'center',
-    },
-
-    /*
-     * HERO
-     */
-
-    hero: {
-      backgroundColor:
-        '#171a38',
-      borderRadius: 22,
-      padding: 20,
-      marginBottom: 15,
-      overflow:
-        'hidden',
-    },
-
-    heroTopRow: {
-      flexDirection:
-        'row',
-      alignItems:
-        'center',
-    },
-
-    heroText: {
-      flex: 1,
-      paddingRight: 12,
-    },
-
-    heroEyebrow: {
-      fontSize: 8,
-      fontWeight:
-        '900',
-      color:
-        '#a5b4fc',
-      letterSpacing:
-        1.5,
-      marginBottom: 6,
-    },
-
-    heroTitle: {
-      fontSize: 23,
-      lineHeight: 28,
-      fontWeight:
-        '900',
-      color:
-        '#ffffff',
-    },
-
-    heroSubtitle: {
-      fontSize: 10,
-      lineHeight: 16,
-      color:
-        '#d0d3e4',
-      marginTop: 7,
-    },
-
-    heroOrb: {
-      width: 64,
-      height: 64,
-      borderRadius: 32,
-      backgroundColor:
-        '#2b315c',
-      alignItems:
-        'center',
-      justifyContent:
-        'center',
-    },
-
-    heroOrbInner: {
-      width: 44,
-      height: 44,
-      borderRadius: 22,
-      backgroundColor:
-        '#6d7df3',
-      alignItems:
-        'center',
-      justifyContent:
-        'center',
-    },
-
-    heroOrbText: {
+      marginTop: 18,
       fontSize: 20,
       fontWeight:
         '900',
       color:
-        '#ffffff',
+        '#0f172a',
     },
 
-    heroDivider: {
-      height: 1,
-      backgroundColor:
-        '#373b59',
-      marginVertical: 17,
-    },
-
-    heroBottom: {
-      flexDirection:
-        'row',
-      alignItems:
+    loadingText: {
+      marginTop: 6,
+      fontSize: 13,
+      color:
+        '#64748b',
+      textAlign:
         'center',
-      justifyContent:
-        'space-between',
-    },
-
-    heroSmallLabel: {
-      fontSize: 7,
-      fontWeight:
-        '900',
-      color:
-        '#8b91ad',
-      letterSpacing:
-        1.2,
-      marginBottom: 3,
-    },
-
-    heroStatus: {
-      fontSize: 11,
-      fontWeight:
-        '800',
-      color:
-        '#ffffff',
-    },
-
-    statusDot: {
-      width: 9,
-      height: 9,
-      borderRadius: 5,
-    },
-
-    statusDotReady: {
-      backgroundColor:
-        '#b9c2ff',
-    },
-
-    statusDotActive: {
-      backgroundColor:
-        '#34d399',
-    },
-
-    statusDotComplete: {
-      backgroundColor:
-        '#a78bfa',
     },
 
     /*
-     * REWARD BANNER
+     * ========================================================
+     * ERROR
+     * ========================================================
      */
 
-    rewardBanner: {
-      flexDirection:
-        'row',
-      alignItems:
-        'center',
-      borderRadius: 15,
-      padding: 11,
-      marginBottom: 22,
-    },
-
-    rewardBannerOn: {
-      backgroundColor:
-        '#f0fdf4',
-      borderWidth: 1,
-      borderColor:
-        '#bbf7d0',
-    },
-
-    rewardBannerOff: {
-      backgroundColor:
-        '#f8fafc',
-      borderWidth: 1,
-      borderColor:
-        '#e2e8f0',
-    },
-
-    rewardBannerIcon: {
-      width: 31,
-      height: 31,
-      borderRadius: 10,
+    errorCard: {
       alignItems:
         'center',
       justifyContent:
         'center',
-      marginRight: 9,
-    },
-
-    rewardBannerIconOn: {
       backgroundColor:
-        '#dcfce7',
-    },
-
-    rewardBannerIconOff: {
-      backgroundColor:
+        '#ffffff',
+      borderRadius:
+        24,
+      borderWidth:
+        1,
+      borderColor:
         '#e2e8f0',
+      padding: 28,
     },
 
-    rewardBannerIconText: {
-      fontSize: 14,
-      fontWeight:
-        '900',
+    errorEmoji: {
+      fontSize: 42,
+      marginBottom: 14,
     },
 
-    rewardBannerIconTextOn: {
-      color:
-        '#16a34a',
-    },
-
-    rewardBannerIconTextOff: {
-      color:
-        '#64748b',
-    },
-
-    rewardBannerContent: {
-      flex: 1,
-    },
-
-    rewardBannerTitle: {
-      fontSize: 8,
-      fontWeight:
-        '900',
-      letterSpacing:
-        0.8,
-      marginBottom: 2,
-    },
-
-    rewardBannerTitleOn: {
-      color:
-        '#15803d',
-    },
-
-    rewardBannerTitleOff: {
-      color:
-        '#64748b',
-    },
-
-    rewardBannerText: {
-      fontSize: 8.5,
-      lineHeight: 13,
-      color:
-        '#94a3b8',
-    },
-
-    /*
-     * SECTION
-     */
-
-    sectionHeader: {
-      flexDirection:
-        'row',
-      alignItems:
-        'flex-end',
-      justifyContent:
-        'space-between',
-      marginBottom: 9,
-    },
-
-    sectionEyebrow: {
-      fontSize: 7,
+    errorTitle: {
+      fontSize: 21,
       fontWeight:
         '900',
       color:
-        '#b4b9c3',
-      letterSpacing:
-        1.25,
-      marginBottom: 3,
-    },
-
-    sectionTitle: {
-      fontSize: 17,
-      fontWeight:
-        '900',
-      color:
-        '#182033',
-    },
-
-    sectionLabel: {
-      fontSize: 8,
-      fontWeight:
-        '900',
-      color:
-        '#b8bdc6',
-      letterSpacing:
-        1.3,
+        '#0f172a',
+      textAlign:
+        'center',
       marginBottom: 8,
     },
 
-    sectionLabelSmall: {
-      fontSize: 7,
-      fontWeight:
-        '900',
-      color:
-        '#b8bdc6',
-      letterSpacing:
-        1.3,
-      marginBottom: 3,
-    },
-
-    liveBadge: {
-      flexDirection:
-        'row',
-      alignItems:
-        'center',
-      backgroundColor:
-        '#ecfdf5',
-      borderRadius: 999,
-      paddingHorizontal: 8,
-      paddingVertical: 5,
-    },
-
-    liveBadgeDot: {
-      width: 5,
-      height: 5,
-      borderRadius: 3,
-      backgroundColor:
-        '#22c55e',
-      marginRight: 5,
-    },
-
-    liveBadgeText: {
-      fontSize: 6.5,
-      fontWeight:
-        '900',
-      color:
-        '#15803d',
-      letterSpacing:
-        0.7,
-    },
-
-    /*
-     * PROGRESS
-     */
-
-    progressCard: {
-      backgroundColor:
-        '#ffffff',
-      borderWidth: 1,
-      borderColor:
-        '#edf0f4',
-      borderRadius: 18,
-      padding: 16,
-      marginBottom: 22,
-    },
-
-    progressTop: {
-      flexDirection:
-        'row',
-      justifyContent:
-        'space-between',
-      alignItems:
-        'flex-end',
-    },
-
-    progressLabel: {
-      fontSize: 7,
-      fontWeight:
-        '900',
-      color:
-        '#b2b7c1',
-      letterSpacing:
-        1.1,
-      marginBottom: 3,
-    },
-
-    progressCountRow: {
-      flexDirection:
-        'row',
-      alignItems:
-        'baseline',
-    },
-
-    progressCount: {
-      fontSize: 27,
-      fontWeight:
-        '900',
-      color:
-        '#1c2436',
-      letterSpacing:
-        -0.8,
-    },
-
-    progressTotal: {
+    errorMessage: {
       fontSize: 13,
-      fontWeight:
-        '700',
       color:
-        '#c5c9d0',
+        '#64748b',
+      lineHeight: 20,
+      textAlign:
+        'center',
+      marginBottom: 20,
     },
 
-    progressPercent: {
-      fontSize: 16,
-      fontWeight:
-        '800',
-      color:
-        '#6176e9',
-      marginBottom: 3,
-    },
-
-    progressTrack: {
-      height: 7,
-      borderRadius: 999,
-      backgroundColor:
-        '#edf0f5',
-      overflow:
-        'hidden',
-      marginTop: 8,
-      marginBottom: 16,
-    },
-
-    progressFill: {
-      height:
+    retryButton: {
+      width:
         '100%',
-      borderRadius: 999,
       backgroundColor:
-        '#6278eb',
-    },
-
-    progressBottom: {
-      flexDirection:
-        'row',
-      alignItems:
-        'center',
-      justifyContent:
-        'space-between',
-    },
-
-    progressStat: {
-      flex: 1,
+        '#0f172a',
+      borderRadius:
+        14,
+      paddingVertical:
+        15,
       alignItems:
         'center',
     },
 
-    progressStatValue: {
-      fontSize: 14,
-      fontWeight:
-        '900',
+    retryButtonText: {
       color:
-        '#1c2436',
-      marginBottom: 2,
-    },
-
-    progressStatLabel: {
-      fontSize: 6,
-      fontWeight:
-        '800',
-      color:
-        '#b5bac3',
-      letterSpacing:
-        0.8,
-    },
-
-    /*
-     * QUICK ACTIONS
-     */
-
-    actionGrid: {
-      flexDirection:
-        'row',
-      gap: 10,
-      marginBottom: 23,
-    },
-
-    actionCard: {
-      flex: 1,
-      minHeight: 145,
-      backgroundColor:
         '#ffffff',
-      borderWidth: 1,
-      borderColor:
-        '#edf0f4',
-      borderRadius: 18,
-      padding: 14,
-      position:
-        'relative',
-    },
-
-    pressed: {
-      opacity: 0.72,
-      transform: [
-        {
-          scale: 0.99,
-        },
-      ],
-    },
-
-    actionIcon: {
-      width: 38,
-      height: 38,
-      borderRadius: 12,
-      alignItems:
-        'center',
-      justifyContent:
-        'center',
-      marginBottom: 17,
-    },
-
-    actionIconBlue: {
-      backgroundColor:
-        '#f0f3ff',
-    },
-
-    actionIconDark: {
-      backgroundColor:
-        '#f3f4f6',
-    },
-
-    actionIconText: {
-      fontSize: 23,
-      fontWeight:
-        '300',
-      color:
-        '#6176e9',
-    },
-
-    storeIcon: {
-      fontSize: 23,
-      fontWeight:
-        '300',
-      color:
-        '#4b5563',
-    },
-
-    actionTitle: {
       fontSize: 13,
       fontWeight:
         '900',
-      color:
-        '#182033',
-      marginBottom: 4,
-    },
-
-    actionSubtitle: {
-      fontSize: 9,
-      lineHeight: 14,
-      color:
-        '#b0b5bf',
-      paddingRight: 10,
-    },
-
-    actionArrow: {
-      position:
-        'absolute',
-      right: 11,
-      bottom: 11,
-    },
-
-    arrowText: {
-      fontSize: 15,
-      fontWeight:
-        '800',
-      color:
-        '#d1d5db',
-    },
-
-    /*
-     * ROUTE
-     */
-
-    routeHeader: {
-      flexDirection:
-        'row',
-      alignItems:
-        'flex-end',
-      justifyContent:
-        'space-between',
-      marginBottom: 8,
-    },
-
-    routeTitle: {
-      fontSize: 19,
-      fontWeight:
-        '900',
-      color:
-        '#182033',
-      letterSpacing:
-        -0.4,
-    },
-
-    routeLiveText: {
-      fontSize: 7,
-      fontWeight:
-        '900',
-      color:
-        '#6176e9',
-      letterSpacing:
-        0.8,
-      marginBottom: 2,
-    },
-
-    routeCard: {
-      backgroundColor:
-        '#ffffff',
-      borderWidth: 1,
-      borderColor:
-        '#edf0f4',
-      borderRadius: 19,
-      padding: 14,
-      marginBottom: 22,
-    },
-
-    routeSummary: {
-      flexDirection:
-        'row',
-      alignItems:
-        'center',
-      paddingBottom: 13,
-      borderBottomWidth: 1,
-      borderBottomColor:
-        '#f1f3f6',
-    },
-
-    routeSummaryIcon: {
-      width: 34,
-      height: 34,
-      borderRadius: 11,
-      backgroundColor:
-        '#f1f0ff',
-      alignItems:
-        'center',
-      justifyContent:
-        'center',
-      marginRight: 9,
-    },
-
-    routeSummaryIconText: {
-      fontSize: 13,
-      fontWeight:
-        '900',
-      color:
-        '#7469d6',
-    },
-
-    routeSummaryText: {
-      flex: 1,
-    },
-
-    routeSummaryTitle: {
-      fontSize: 11,
-      fontWeight:
-        '900',
-      color:
-        '#253047',
-      marginBottom: 2,
-    },
-
-    routeSummarySubtitle: {
-      fontSize: 8,
-      color:
-        '#b1b6bf',
-    },
-
-    timeline: {
-      paddingTop: 13,
-      paddingBottom: 4,
-    },
-
-    timelineRow: {
-      flexDirection:
-        'row',
-      minHeight: 49,
-    },
-
-    timelineRail: {
-      width: 24,
-      alignItems:
-        'center',
-      marginRight: 7,
-    },
-
-    timelineDot: {
-      width: 9,
-      height: 9,
-      borderRadius: 5,
-      backgroundColor:
-        '#6176e9',
-      zIndex: 2,
-      marginTop: 2,
-    },
-
-    timelineDotOrder: {
-      backgroundColor:
-        '#22a56d',
-    },
-
-    timelineLine: {
-      width: 1,
-      flex: 1,
-      marginTop: -1,
-      backgroundColor:
-        '#dce2f7',
-    },
-
-    timelineContent: {
-      flex: 1,
-      paddingBottom: 10,
-    },
-
-    timelineMain: {
-      flexDirection:
-        'row',
-      alignItems:
-        'flex-start',
-      justifyContent:
-        'space-between',
-    },
-
-    timelineStoreContainer: {
-      flex: 1,
-      paddingRight: 8,
-    },
-
-    timelineStore: {
-      fontSize: 10,
-      fontWeight:
-        '800',
-      color:
-        '#253047',
-    },
-
-    timelineCode: {
-      fontSize: 7,
-      color:
-        '#b4b9c2',
-      marginTop: 2,
-    },
-
-    timelineTime: {
-      fontSize: 8,
-      color:
-        '#a7adb7',
-    },
-
-    timelineMetaRow: {
-      flexDirection:
-        'row',
-      alignItems:
-        'center',
-      marginTop: 3,
-    },
-
-    timelineMeta: {
-      fontSize: 7,
-      color:
-        '#b3b8c1',
-    },
-
-    orderMiniBadge: {
-      backgroundColor:
-        '#ecfdf5',
-      borderRadius: 999,
-      paddingHorizontal: 5,
-      paddingVertical: 3,
-      marginLeft: 6,
-    },
-
-    orderMiniBadgeText: {
-      fontSize: 5.5,
-      fontWeight:
-        '900',
-      color:
-        '#15803d',
       letterSpacing:
         0.5,
     },
 
-    fullRouteButton: {
-      height: 42,
-      borderRadius: 11,
-      backgroundColor:
-        '#1a1e42',
-      flexDirection:
-        'row',
+    /*
+     * ========================================================
+     * LOCKED
+     * ========================================================
+     */
+
+    lockedCard: {
+      flex: 1,
       alignItems:
         'center',
       justifyContent:
         'center',
-    },
-
-    fullRouteButtonText: {
-      fontSize: 7.5,
-      fontWeight:
-        '900',
-      color:
+      backgroundColor:
         '#ffffff',
-      letterSpacing:
+      borderRadius:
+        24,
+      borderWidth:
         1,
+      borderColor:
+        '#e2e8f0',
+      padding: 28,
     },
 
-    fullRouteArrow: {
-      fontSize: 13,
-      fontWeight:
-        '900',
-      color:
-        '#ffffff',
-      marginLeft: 7,
-    },
-
-    emptyRoute: {
+    lockedIcon: {
+      width: 78,
+      height: 78,
+      borderRadius: 39,
+      backgroundColor:
+        '#f1f5f9',
       alignItems:
         'center',
-      paddingVertical: 25,
+      justifyContent:
+        'center',
+      marginBottom: 20,
     },
 
-    emptyRouteIcon: {
-      width: 42,
-      height: 42,
-      borderRadius: 13,
+    lockedEmoji: {
+      fontSize: 38,
+    },
+
+    lockedTitle: {
+      fontSize: 24,
+      fontWeight:
+        '900',
+      color:
+        '#0f172a',
+      textAlign:
+        'center',
+      marginBottom: 10,
+    },
+
+    lockedText: {
+      fontSize: 14,
+      color:
+        '#64748b',
+      lineHeight: 21,
+      textAlign:
+        'center',
+      marginBottom: 18,
+    },
+
+    statusBoxInfo: {
+      width:
+        '100%',
       backgroundColor:
         '#f8fafc',
-      alignItems:
-        'center',
-      justifyContent:
-        'center',
-      marginBottom: 9,
+      borderWidth:
+        1,
+      borderColor:
+        '#e2e8f0',
+      borderRadius:
+        14,
+      padding: 14,
+      marginBottom: 12,
     },
 
-    emptyRouteIconText: {
-      fontSize: 18,
-      color:
-        '#94a3b8',
-    },
-
-    emptyRouteTitle: {
-      fontSize: 11,
-      fontWeight:
-        '900',
+    statusTitleInfo: {
       color:
         '#334155',
+      fontSize: 14,
+      fontWeight:
+        '800',
+      textAlign:
+        'center',
       marginBottom: 4,
     },
 
-    emptyRouteText: {
-      fontSize: 8,
-      lineHeight: 12,
+    statusTextInfo: {
       color:
-        '#94a3b8',
+        '#64748b',
+      fontSize: 12,
+      lineHeight: 18,
       textAlign:
         'center',
-      maxWidth: 270,
+    },
+
+    attendanceButton: {
+      width:
+        '100%',
+      backgroundColor:
+        '#0f172a',
+      borderRadius:
+        14,
+      paddingVertical:
+        15,
+      alignItems:
+        'center',
+      marginTop: 8,
+    },
+
+    attendanceButtonText: {
+      color:
+        '#ffffff',
+      fontSize: 13,
+      fontWeight:
+        '900',
+      letterSpacing:
+        0.5,
     },
 
     /*
-     * CURRENT VISIT
+     * ========================================================
+     * COMPLETED
+     * ========================================================
      */
 
-    visitCard: {
-      backgroundColor:
-        '#ffffff',
-      borderWidth: 1,
-      borderColor:
-        '#e2e8f0',
-      borderRadius: 20,
-      padding: 16,
-      marginBottom: 22,
-    },
-
-    visitHeader: {
-      flexDirection:
-        'row',
+    completedCard: {
       alignItems:
         'center',
       justifyContent:
-        'space-between',
-    },
-
-    visitHeaderLeft: {
-      flexDirection:
-        'row',
-      alignItems:
         'center',
-      flex: 1,
+      backgroundColor:
+        '#ffffff',
+      borderRadius:
+        24,
+      borderWidth:
+        1,
+      borderColor:
+        '#e2e8f0',
+      padding: 28,
     },
 
-    liveIndicator: {
-      width: 37,
-      height: 37,
-      borderRadius: 12,
+    completedIcon: {
+      width: 82,
+      height: 82,
+      borderRadius: 41,
       backgroundColor:
         '#ecfdf5',
       alignItems:
         'center',
       justifyContent:
         'center',
-      marginRight: 10,
+      marginBottom: 18,
     },
 
-    liveDot: {
-      width: 9,
-      height: 9,
-      borderRadius: 5,
-      backgroundColor:
-        '#10b981',
-    },
-
-    visitEyebrow: {
-      fontSize: 7,
-      fontWeight:
-        '900',
-      color:
-        '#10b981',
-      letterSpacing:
-        0.9,
-      marginBottom: 2,
-    },
-
-    visitTitle: {
-      fontSize: 14,
-      fontWeight:
-        '900',
-      color:
-        '#111827',
-    },
-
-    checkCircle: {
-      width: 31,
-      height: 31,
-      borderRadius: 16,
-      backgroundColor:
-        '#dcfce7',
-      alignItems:
-        'center',
-      justifyContent:
-        'center',
-    },
-
-    checkText: {
-      fontSize: 14,
-      fontWeight:
-        '900',
-      color:
-        '#16a34a',
-    },
-
-    visitInfoRow: {
-      flexDirection:
-        'row',
-      marginTop: 17,
-      paddingTop: 14,
-      borderTopWidth: 1,
-      borderTopColor:
-        '#f1f5f9',
-    },
-
-    visitInfo: {
-      flex: 1,
-    },
-
-    visitInfoLabel: {
-      fontSize: 7,
-      fontWeight:
-        '900',
-      color:
-        '#94a3b8',
-      letterSpacing:
-        0.7,
-      marginBottom: 4,
-    },
-
-    visitInfoValue: {
-      fontSize: 12,
-      fontWeight:
-        '900',
-      color:
-        '#334155',
-    },
-
-    orderGreen: {
-      color:
-        '#16a34a',
-    },
-
-    orderGray: {
-      color:
-        '#64748b',
-    },
-
-    orderBanner: {
-      flexDirection:
-        'row',
-      alignItems:
-        'center',
-      borderRadius: 13,
-      padding: 10,
-      marginTop: 13,
-    },
-
-    orderBannerYes: {
-      backgroundColor:
-        '#f0fdf4',
-    },
-
-    orderBannerNo: {
-      backgroundColor:
-        '#f8fafc',
-    },
-
-    orderBannerIcon: {
-      width: 30,
-      height: 30,
-      borderRadius: 9,
-      alignItems:
-        'center',
-      justifyContent:
-        'center',
-      marginRight: 9,
-    },
-
-    orderBannerIconYes: {
-      backgroundColor:
-        '#dcfce7',
-    },
-
-    orderBannerIconNo: {
-      backgroundColor:
-        '#e2e8f0',
-    },
-
-    orderBannerIconText: {
-      fontSize: 14,
-      fontWeight:
-        '900',
-    },
-
-    orderBannerIconTextYes: {
-      color:
-        '#16a34a',
-    },
-
-    orderBannerIconTextNo: {
-      color:
-        '#64748b',
-    },
-
-    orderBannerContent: {
-      flex: 1,
-    },
-
-    orderBannerTitle: {
-      fontSize: 10,
-      fontWeight:
-        '900',
-      marginBottom: 2,
-    },
-
-    orderBannerTitleYes: {
-      color:
-        '#166534',
-    },
-
-    orderBannerTitleNo: {
-      color:
-        '#475569',
-    },
-
-    orderBannerText: {
-      fontSize: 8,
-      lineHeight: 12,
-      color:
-        '#94a3b8',
-    },
-
-    spinButton: {
-      marginTop: 11,
-    },
-
-    /*
-     * REWARD PAUSED
-     */
-
-    rewardPausedStrip: {
-      flexDirection:
-        'row',
-      alignItems:
-        'center',
-      backgroundColor:
-        '#f8fafc',
-      borderRadius: 13,
-      padding: 10,
-      marginTop: 11,
-      borderWidth: 1,
-      borderColor:
-        '#e2e8f0',
-    },
-
-    rewardPausedBadge: {
-      width: 30,
-      height: 30,
-      borderRadius: 9,
-      backgroundColor:
-        '#e2e8f0',
-      alignItems:
-        'center',
-      justifyContent:
-        'center',
-      marginRight: 9,
-    },
-
-    rewardPausedBadgeText: {
-      color:
-        '#64748b',
-      fontSize: 14,
-      fontWeight:
-        '900',
-    },
-
-    rewardPausedContent: {
-      flex: 1,
-    },
-
-    rewardPausedTitle: {
-      fontSize: 10,
-      fontWeight:
-        '900',
-      color:
-        '#334155',
-      marginBottom: 2,
-    },
-
-    rewardPausedText: {
-      fontSize: 8,
-      lineHeight: 12,
-      color:
-        '#94a3b8',
-    },
-
-    /*
-     * COMPLETED
-     */
-
-    completedStrip: {
-      flexDirection:
-        'row',
-      alignItems:
-        'center',
-      backgroundColor:
-        '#faf5ff',
-      borderRadius: 13,
-      padding: 10,
-      marginTop: 11,
-    },
-
-    completedBadge: {
-      width: 30,
-      height: 30,
-      borderRadius: 9,
-      backgroundColor:
-        '#ede9fe',
-      alignItems:
-        'center',
-      justifyContent:
-        'center',
-      marginRight: 9,
-    },
-
-    completedBadgeText: {
-      color:
-        '#7c3aed',
-      fontSize: 14,
-      fontWeight:
-        '900',
-    },
-
-    completedContent: {
-      flex: 1,
+    completedEmoji: {
+      fontSize: 42,
     },
 
     completedTitle: {
-      fontSize: 10,
+      fontSize: 24,
       fontWeight:
         '900',
       color:
-        '#6d28d9',
-      marginBottom: 2,
+        '#0f172a',
+      textAlign:
+        'center',
+      marginBottom: 10,
     },
 
     completedText: {
-      fontSize: 8,
+      fontSize: 14,
+      lineHeight: 21,
       color:
-        '#94a3b8',
+        '#64748b',
+      textAlign:
+        'center',
+      marginBottom: 16,
+    },
+
+    backButton: {
+      width:
+        '100%',
+      backgroundColor:
+        '#0f172a',
+      borderRadius:
+        14,
+      paddingVertical:
+        15,
+      alignItems:
+        'center',
+      marginTop: 10,
+    },
+
+    backButtonText: {
+      color:
+        '#ffffff',
+      fontSize: 13,
+      fontWeight:
+        '900',
+      letterSpacing:
+        0.5,
     },
 
     /*
-     * HISTORY
+     * ========================================================
+     * MAIN CARD
+     * ========================================================
      */
 
-    historyCard: {
+    wheelCard: {
+      backgroundColor:
+        '#ffffff',
+      borderRadius:
+        24,
+      borderWidth:
+        1,
+      borderColor:
+        '#e2e8f0',
+      padding: 20,
+      alignItems:
+        'center',
+      shadowColor:
+        '#0f172a',
+      shadowOffset: {
+        width: 0,
+        height: 8,
+      },
+      shadowOpacity:
+        0.06,
+      shadowRadius:
+        20,
+      elevation: 3,
+    },
+
+    /*
+     * ========================================================
+     * DATABASE BADGE
+     * ========================================================
+     */
+
+    databaseBadge: {
       flexDirection:
         'row',
+      alignItems:
+        'center',
+      backgroundColor:
+        '#ecfdf5',
+      borderWidth:
+        1,
+      borderColor:
+        '#bbf7d0',
+      borderRadius:
+        999,
+      paddingHorizontal:
+        11,
+      paddingVertical:
+        6,
+      marginBottom: 10,
+    },
+
+    databaseDot: {
+      width: 7,
+      height: 7,
+      borderRadius: 4,
+      backgroundColor:
+        '#16a34a',
+      marginRight: 6,
+    },
+
+    databaseBadgeText: {
+      color:
+        '#15803d',
+      fontSize: 9,
+      fontWeight:
+        '900',
+      letterSpacing:
+        1,
+    },
+
+    /*
+     * ========================================================
+     * ATTENDANCE
+     * ========================================================
+     */
+
+    attendanceBadge: {
+      backgroundColor:
+        '#ecfdf5',
+      borderWidth:
+        1,
+      borderColor:
+        '#bbf7d0',
+      borderRadius:
+        999,
+      paddingHorizontal:
+        13,
+      paddingVertical:
+        7,
+      marginBottom: 10,
+    },
+
+    attendanceBadgeText: {
+      color:
+        '#15803d',
+      fontSize: 9,
+      fontWeight:
+        '900',
+      letterSpacing:
+        0.6,
+    },
+
+    /*
+     * ========================================================
+     * STORE
+     * ========================================================
+     */
+
+    storePill: {
+      backgroundColor:
+        '#f8fafc',
+      borderWidth:
+        1,
+      borderColor:
+        '#e2e8f0',
+      borderRadius:
+        999,
+      paddingHorizontal:
+        13,
+      paddingVertical:
+        7,
+      marginBottom: 10,
+    },
+
+    storePillText: {
+      color:
+        '#334155',
+      fontSize: 12,
+      fontWeight:
+        '800',
+    },
+
+    /*
+     * ========================================================
+     * ORDER
+     * ========================================================
+     */
+
+    orderBadge: {
+      backgroundColor:
+        '#eff6ff',
+      borderWidth:
+        1,
+      borderColor:
+        '#bfdbfe',
+      borderRadius:
+        999,
+      paddingHorizontal:
+        13,
+      paddingVertical:
+        7,
+      marginBottom: 18,
+    },
+
+    orderBadgeText: {
+      color:
+        '#1d4ed8',
+      fontSize: 9,
+      fontWeight:
+        '900',
+      letterSpacing:
+        0.6,
+    },
+
+    /*
+     * ========================================================
+     * POINTER
+     * ========================================================
+     */
+
+    pointerContainer: {
+      height: 27,
+      alignItems:
+        'center',
+      justifyContent:
+        'center',
+      zIndex: 20,
+      marginBottom: -2,
+    },
+
+    pointerOuter: {
+      width: 0,
+      height: 0,
+      borderLeftWidth:
+        14,
+      borderRightWidth:
+        14,
+      borderTopWidth:
+        27,
+      borderLeftColor:
+        'transparent',
+      borderRightColor:
+        'transparent',
+      borderTopColor:
+        '#0f172a',
+      alignItems:
+        'center',
+      justifyContent:
+        'center',
+    },
+
+    pointerInner: {
+      position:
+        'absolute',
+      width: 0,
+      height: 0,
+      borderLeftWidth:
+        7,
+      borderRightWidth:
+        7,
+      borderTopWidth:
+        15,
+      borderLeftColor:
+        'transparent',
+      borderRightColor:
+        'transparent',
+      borderTopColor:
+        '#ffffff',
+      top: -23,
+    },
+
+    /*
+     * ========================================================
+     * WHEEL
+     * ========================================================
+     */
+
+    wheelWrapper: {
+      width:
+        WHEEL_SIZE,
+      height:
+        WHEEL_SIZE,
+      alignItems:
+        'center',
+      justifyContent:
+        'center',
+      marginBottom: 22,
+    },
+
+    wheelContainer: {
+      width:
+        WHEEL_SIZE,
+      height:
+        WHEEL_SIZE,
+      borderRadius:
+        WHEEL_SIZE / 2,
+      overflow:
+        'hidden',
+      position:
+        'relative',
+      borderWidth:
+        7,
+      borderColor:
+        '#0f172a',
+      backgroundColor:
+        '#ffffff',
+    },
+
+    /*
+     * ========================================================
+     * EQUAL QUADRANTS
+     * ========================================================
+     */
+
+    quadrant: {
+      position:
+        'absolute',
+      width:
+        WHEEL_SIZE / 2,
+      height:
+        WHEEL_SIZE / 2,
+      alignItems:
+        'center',
+      justifyContent:
+        'center',
+    },
+
+    quadrantTR: {
+      top: 0,
+      right: 0,
+      borderTopRightRadius:
+        WHEEL_SIZE / 2,
+    },
+
+    quadrantBR: {
+      bottom: 0,
+      right: 0,
+      borderBottomRightRadius:
+        WHEEL_SIZE / 2,
+    },
+
+    quadrantBL: {
+      bottom: 0,
+      left: 0,
+      borderBottomLeftRadius:
+        WHEEL_SIZE / 2,
+    },
+
+    quadrantTL: {
+      top: 0,
+      left: 0,
+      borderTopLeftRadius:
+        WHEEL_SIZE / 2,
+    },
+
+    emptyQuadrant: {
+      backgroundColor:
+        '#e2e8f0',
+    },
+
+    /*
+     * ========================================================
+     * REWARD TEXT
+     * ========================================================
+     */
+
+    rewardLabelContainer: {
+      alignItems:
+        'center',
+      justifyContent:
+        'center',
+      width:
+        WHEEL_SIZE / 2 - 15,
+    },
+
+    quadrantText: {
+      color:
+        '#ffffff',
+      fontSize: 16,
+      fontWeight:
+        '900',
+      textAlign:
+        'center',
+      textShadowColor:
+        '#00000055',
+      textShadowOffset: {
+        width: 1,
+        height: 1,
+      },
+      textShadowRadius: 2,
+    },
+
+    quadrantTextTR: {
+      transform: [
+        {
+          rotate:
+            '45deg',
+        },
+      ],
+    },
+
+    quadrantTextBR: {
+      transform: [
+        {
+          rotate:
+            '-45deg',
+        },
+      ],
+    },
+
+    quadrantTextBL: {
+      transform: [
+        {
+          rotate:
+            '45deg',
+        },
+      ],
+    },
+
+    quadrantTextTL: {
+      transform: [
+        {
+          rotate:
+            '-45deg',
+        },
+      ],
+    },
+
+    /*
+     * ========================================================
+     * DIVIDERS
+     * ========================================================
+     */
+
+    verticalLine: {
+      position:
+        'absolute',
+      width: 4,
+      height:
+        WHEEL_SIZE,
+      backgroundColor:
+        '#ffffff',
+      left:
+        WHEEL_SIZE / 2 - 2,
+      top: 0,
+    },
+
+    horizontalLine: {
+      position:
+        'absolute',
+      width:
+        WHEEL_SIZE,
+      height: 4,
+      backgroundColor:
+        '#ffffff',
+      top:
+        WHEEL_SIZE / 2 - 2,
+      left: 0,
+    },
+
+    /*
+     * ========================================================
+     * CENTER
+     * ========================================================
+     */
+
+    wheelCenterOuter: {
+      position:
+        'absolute',
+      width: 68,
+      height: 68,
+      borderRadius: 34,
+      backgroundColor:
+        '#0f172a',
+      alignItems:
+        'center',
+      justifyContent:
+        'center',
+      zIndex: 10,
+    },
+
+    wheelCenterInner: {
+      width: 56,
+      height: 56,
+      borderRadius: 28,
+      backgroundColor:
+        '#ffffff',
+      alignItems:
+        'center',
+      justifyContent:
+        'center',
+    },
+
+    centerCapEmoji: {
+      fontSize: 28,
+    },
+
+    /*
+     * ========================================================
+     * HINT
+     * ========================================================
+     */
+
+    hintCard: {
+      width:
+        '100%',
+      flexDirection:
+        'row',
+      alignItems:
+        'center',
+      backgroundColor:
+        '#f8fafc',
+      borderWidth:
+        1,
+      borderColor:
+        '#e2e8f0',
+      borderRadius:
+        14,
+      padding: 12,
+      marginBottom: 16,
+    },
+
+    hintIcon: {
+      fontSize: 22,
+      marginRight: 10,
+    },
+
+    hintContent: {
+      flex: 1,
+    },
+
+    hintTitle: {
+      color:
+        '#334155',
+      fontSize: 12,
+      fontWeight:
+        '900',
+      marginBottom: 2,
+    },
+
+    hint: {
+      color:
+        '#64748b',
+      fontSize: 11,
+      lineHeight: 16,
+    },
+
+    /*
+     * ========================================================
+     * RESULT
+     * ========================================================
+     */
+
+    resultCard: {
+      width:
+        '100%',
+      borderWidth:
+        2,
+      borderRadius:
+        18,
+      padding: 17,
+      marginBottom: 16,
       alignItems:
         'center',
       backgroundColor:
         '#ffffff',
-      borderWidth: 1,
-      borderColor:
-        '#e2e8f0',
-      borderRadius: 17,
-      padding: 13,
-      marginBottom: 17,
     },
 
-    historyIcon: {
-      width: 41,
-      height: 41,
-      borderRadius: 12,
-      backgroundColor:
-        '#f1f5f9',
+    resultIcon: {
+      width: 50,
+      height: 50,
+      borderRadius: 25,
       alignItems:
         'center',
       justifyContent:
         'center',
-      marginRight: 10,
+      marginBottom: 8,
     },
 
-    historyIconText: {
-      fontSize: 19,
-      fontWeight:
-        '600',
-      color:
-        '#475569',
+    resultEmoji: {
+      fontSize: 25,
     },
 
-    historyContent: {
-      flex: 1,
-    },
-
-    historyTitle: {
-      fontSize: 12,
+    resultBadgeText: {
+      fontSize: 22,
       fontWeight:
         '900',
+      textAlign:
+        'center',
+      marginBottom: 2,
+    },
+
+    resultUnlocked: {
       color:
-        '#1e293b',
+        '#94a3b8',
+      fontSize: 9,
+      fontWeight:
+        '900',
+      letterSpacing:
+        1,
+      marginBottom: 8,
+    },
+
+    resultMessage: {
+      fontSize: 13,
+      color:
+        '#475569',
+      lineHeight: 19,
+      textAlign:
+        'center',
+      marginBottom: 13,
+    },
+
+    codeContainer: {
+      width:
+        '100%',
+      backgroundColor:
+        '#f8fafc',
+      borderRadius:
+        11,
+      padding: 11,
+      alignItems:
+        'center',
+    },
+
+    codeLabel: {
+      color:
+        '#94a3b8',
+      fontSize: 8,
+      fontWeight:
+        '900',
+      letterSpacing:
+        1,
       marginBottom: 3,
     },
 
-    historyText: {
-      fontSize: 9,
+    codeValue: {
       color:
-        '#94a3b8',
-    },
-
-    historyArrow: {
-      fontSize: 17,
+        '#0f172a',
+      fontSize: 18,
       fontWeight:
-        '700',
-      color:
-        '#94a3b8',
-      marginLeft: 8,
+        '900',
+      letterSpacing:
+        1,
     },
 
     /*
-     * SIGN OUT
+     * ========================================================
+     * SPIN BUTTON
+     * ========================================================
      */
 
-    signOutButton: {
+    spinButton: {
+      width:
+        '100%',
+      backgroundColor:
+        '#0f172a',
+      borderRadius:
+        15,
+      paddingVertical:
+        16,
       alignItems:
         'center',
       justifyContent:
         'center',
-      paddingVertical: 12,
-      marginBottom: 15,
+      flexDirection:
+        'row',
+      gap: 9,
+      shadowColor:
+        '#0f172a',
+      shadowOffset: {
+        width: 0,
+        height: 5,
+      },
+      shadowOpacity:
+        0.15,
+      shadowRadius:
+        10,
+      elevation: 3,
     },
 
-    signOutText: {
-      fontSize: 10,
-      fontWeight:
-        '800',
+    spinButtonDisabled: {
+      opacity:
+        0.45,
+    },
+
+    spinButtonText: {
       color:
-        '#a1a5ae',
+        '#ffffff',
+      fontSize: 14,
+      fontWeight:
+        '900',
+      letterSpacing:
+        0.7,
     },
 
     /*
-     * FOOTER
+     * ========================================================
+     * CLAIM
+     * ========================================================
      */
 
-    footer: {
+    resultRouteButton: {
+      width:
+        '100%',
       flexDirection:
         'row',
       alignItems:
         'center',
       justifyContent:
         'center',
-      paddingHorizontal: 15,
-      paddingBottom: 10,
-    },
-
-    footerDot: {
-      width: 5,
-      height: 5,
-      borderRadius: 3,
       backgroundColor:
-        '#10b981',
-      marginRight: 6,
+        '#16a34a',
+      borderRadius:
+        15,
+      paddingVertical:
+        16,
+      marginTop: 10,
     },
 
-    footerText: {
-      fontSize: 7.5,
+    resultRouteButtonText: {
       color:
-        '#a1a1aa',
+        '#ffffff',
+      fontSize: 14,
+      fontWeight:
+        '900',
+      letterSpacing:
+        0.6,
+    },
+
+    resultRouteArrow: {
+      color:
+        '#ffffff',
+      fontSize: 18,
+      fontWeight:
+        '900',
+      marginLeft: 8,
+    },
+
+    /*
+     * ========================================================
+     * FOOTER
+     * ========================================================
+     */
+
+    databaseNote: {
+      color:
+        '#94a3b8',
+      fontSize: 9,
       textAlign:
         'center',
+      lineHeight: 14,
+      marginTop: 13,
     },
   });
