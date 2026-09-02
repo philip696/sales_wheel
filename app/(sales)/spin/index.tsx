@@ -2,8 +2,8 @@ import { ScreenContainer } from '@/src/components/ScreenContainer';
 import { useAttendanceFlow } from '@/src/features/attendance/AttendanceFlowContext';
 import { supabase } from '@/src/lib/supabase';
 import {
-  getActiveEvent,
-  listActiveRewards,
+  getRewardEvent,
+  listActiveRewardsForEvent,
 } from '@/src/services/rewardService';
 import type { Reward } from '@/src/types';
 import * as Location from 'expo-location';
@@ -337,7 +337,7 @@ export default function SpinScreen() {
          */
 
         const activeEvent =
-          await getActiveEvent();
+          await getRewardEvent();
 
         if (!activeEvent) {
           setEvent(null);
@@ -353,7 +353,9 @@ export default function SpinScreen() {
         );
 
         const data =
-          await listActiveRewards();
+          await listActiveRewardsForEvent(
+            activeEvent.id
+          );
 
         console.log(
           'ACTIVE REWARDS FROM SUPABASE:',
@@ -1268,7 +1270,7 @@ export default function SpinScreen() {
              * the database has successfully accepted the spin.
              */
             setWonReward(
-              resolvedReward
+              serverReward
             );
 
             setSpinCompleted(

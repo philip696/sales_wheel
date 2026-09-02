@@ -144,27 +144,7 @@ const ADMIN_SECTIONS = [
 
     route:
       '/admin/sales',
-  },
-
-  {
-    title:
-      'Rewards',
-
-    description:
-      'Configure rewards and probabilities',
-
-    shortLabel:
-      'G',
-
-    accent:
-      '#db2777',
-
-    background:
-      '#fdf2f8',
-
-    route:
-      '/admin/rewards',
-  },
+  }
 ];
 
 /*
